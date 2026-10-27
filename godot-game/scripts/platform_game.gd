@@ -3,6 +3,9 @@ extends Control
 signal game_won
 
 const HERO_TEXTURE := preload("res://assets/characters/hero_walk_user_v3.png")
+const GARDEN_TEXTURE := preload("res://assets/platform/campus_garden.svg")
+const LEDGE_TEXTURE := preload("res://assets/platform/garden_ledge.svg")
+const SLIME_TEXTURE := preload("res://assets/platform/slime.svg")
 const MOVE_SPEED := 250.0
 const JUMP_SPEED := 515.0
 const GRAVITY := 1450.0
@@ -19,6 +22,11 @@ var double_jump_available := false
 var invincible := false
 var finished := false
 var platform_time := 0.0
+var coyote_left := 0.0
+var jump_buffer := 0.0
+var was_grounded := false
+var stage_generation := 0
+var flag_cloth: Polygon2D
 
 var coin_label: Label
 var heart_label: Label
@@ -61,13 +69,15 @@ func build_interface() -> void:
 	hud.add_child(coin_label)
 	heart_label = make_label(Vector2(225, 15), Vector2(180, 36), 22, Color("#fb7185"))
 	hud.add_child(heart_label)
-	item_label = make_label(Vector2(610, 15), Vector2(320, 36), 18, Color("#bae6fd"))
+	item_label = make_label(Vector2(435, 15), Vector2(330, 36), 17, Color("#bae6fd"))
 	item_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hud.add_child(item_label)
 
 	message_label = make_label(Vector2(210, 72), Vector2(540, 42), 19, Color.WHITE)
 	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	message_label.add_theme_color_override("font_shadow_color", Color("#243b44"))
+	message_label.add_theme_constant_override("shadow_offset_y", 2)
 	add_child(message_label)
 
 	result_overlay = ColorRect.new()
@@ -103,6 +113,10 @@ func start_game() -> void:
 
 
 func rebuild_stage() -> void:
+	stage_generation += 1
+	coyote_left = 0.0
+	jump_buffer = 0.0
+	was_grounded = false
 	for child in world.get_children():
 		world.remove_child(child)
 		child.queue_free()
@@ -136,34 +150,41 @@ func rebuild_stage() -> void:
 
 
 func build_scenery() -> void:
-	for cloud_position in [Vector2(75, 135), Vector2(380, 155), Vector2(735, 120)]:
-		var cloud := Polygon2D.new()
-		cloud.position = cloud_position
-		cloud.polygon = PackedVector2Array([
-			Vector2(0, 22), Vector2(18, 5), Vector2(42, 9),
-			Vector2(58, 0), Vector2(86, 12), Vector2(105, 30), Vector2(0, 30)
-		])
-		cloud.color = Color("#dbeafeaa")
-		world.add_child(cloud)
-
-	for hill_position in [Vector2(0, 500), Vector2(305, 500), Vector2(650, 500)]:
-		var hill := Polygon2D.new()
-		hill.position = hill_position
-		hill.polygon = PackedVector2Array([Vector2(0, 0), Vector2(150, -150), Vector2(300, 0)])
-		hill.color = Color("#166534")
-		world.add_child(hill)
+	var scenery := Sprite2D.new()
+	scenery.texture = GARDEN_TEXTURE
+	scenery.centered = false
+	world.add_child(scenery)
+	for i in 18:
+		var mote := Polygon2D.new()
+		mote.polygon = PackedVector2Array([Vector2(-2, 0), Vector2(0, -2), Vector2(2, 0), Vector2(0, 2)])
+		mote.color = Color("#fff6c680")
+		mote.position = Vector2(35 + i * 52, 170 + (i * 47) % 290)
+		world.add_child(mote)
+		var drift := create_tween().set_loops()
+		drift.tween_property(mote, "position", mote.position + Vector2(15, -18), 2.1 + i * 0.07).set_trans(Tween.TRANS_SINE)
+		drift.tween_property(mote, "position", mote.position, 2.1 + i * 0.07).set_trans(Tween.TRANS_SINE)
+		drift.bind_node(mote)
 
 
 func build_ground() -> void:
-	build_solid_rect(Vector2(0, 500), Vector2(960, 40), Color("#854d0e"))
-	var grass := make_rect(Vector2(0, 492), Vector2(960, 12), Color("#65a30d"))
-	world.add_child(grass)
+	var ground := build_solid_rect(Vector2(0, 500), Vector2(960, 40), Color("#66564a"))
+	decorate_ledge(ground, Vector2(-480, -20), Vector2(960, 40))
 
 
 func build_platform(position_value: Vector2, size_value: Vector2) -> void:
-	build_solid_rect(position_value, size_value, Color("#92400e"))
-	var grass := make_rect(position_value + Vector2(0, -6), Vector2(size_value.x, 8), Color("#84cc16"))
-	world.add_child(grass)
+	var ledge := build_solid_rect(position_value, size_value, Color("#66564a"))
+	decorate_ledge(ledge, -size_value / 2.0, Vector2(size_value.x, 32))
+
+
+func decorate_ledge(parent: Node2D, origin: Vector2, dimensions: Vector2) -> void:
+	var texture := TextureRect.new()
+	texture.texture = LEDGE_TEXTURE
+	texture.position = origin
+	texture.size = dimensions
+	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	texture.stretch_mode = TextureRect.STRETCH_TILE
+	texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(texture)
 
 
 func build_solid_rect(position_value: Vector2, size_value: Vector2, color: Color) -> StaticBody2D:
@@ -195,6 +216,10 @@ func build_moving_platform() -> void:
 	moving_platform.add_child(shape_node)
 	var visual := make_rect(Vector2(-52.5, -9), Vector2(105, 18), Color("#f59e0b"))
 	moving_platform.add_child(visual)
+	decorate_ledge(moving_platform, Vector2(-52.5, -9), Vector2(105, 28))
+	for x in [-38, 38]:
+		var lamp := make_rect(Vector2(x, 3), Vector2(7, 4), Color("#fff1ac"))
+		moving_platform.add_child(lamp)
 	world.add_child(moving_platform)
 
 
@@ -240,6 +265,18 @@ func build_coin(position_value: Vector2) -> void:
 	coin.add_child(visual)
 	var shine := make_rect(Vector2(-3, -11), Vector2(5, 22), Color("#fff7ae"))
 	coin.add_child(shine)
+	var rim := Line2D.new()
+	rim.points = visual.polygon
+	rim.closed = true
+	rim.width = 2.0
+	rim.default_color = Color("#b17c2e")
+	coin.add_child(rim)
+	var bob := create_tween().set_loops().bind_node(coin)
+	bob.tween_property(coin, "position:y", position_value.y - 6, 0.6).set_trans(Tween.TRANS_SINE)
+	bob.tween_property(coin, "position:y", position_value.y, 0.6).set_trans(Tween.TRANS_SINE)
+	var spin := create_tween().set_loops().bind_node(coin)
+	spin.tween_property(visual, "scale:x", 0.2, 0.4)
+	spin.tween_property(visual, "scale:x", 1.0, 0.4)
 	coin.body_entered.connect(_on_coin_collected.bind(coin))
 	world.add_child(coin)
 
@@ -260,6 +297,13 @@ func build_wing_shoes(position_value: Vector2) -> void:
 	wing.polygon = PackedVector2Array([Vector2(-12, -5), Vector2(-27, -20), Vector2(-25, 2)])
 	wing.color = Color("#f8fafc")
 	item.add_child(wing)
+	for i in 3:
+		var feather := make_rect(Vector2(-27 + i * 4, -20 + i * 4), Vector2(16, 3), Color("#e0f2fe"))
+		feather.rotation = -0.5
+		item.add_child(feather)
+	var float_item := create_tween().set_loops().bind_node(item)
+	float_item.tween_property(item, "position:y", position_value.y - 7, 0.8).set_trans(Tween.TRANS_SINE)
+	float_item.tween_property(item, "position:y", position_value.y, 0.8).set_trans(Tween.TRANS_SINE)
 	item.body_entered.connect(_on_wing_shoes_collected.bind(item))
 	world.add_child(item)
 
@@ -306,11 +350,19 @@ func build_enemy(position_value: Vector2, left_bound: float, right_bound: float,
 		Vector2(0, -22), Vector2(11, -18), Vector2(19, -5), Vector2(21, 14)
 	])
 	body_visual.color = Color("#a855f7")
+	# Keep collision independent from the animated illustrated body.
+	body_visual.visible = false
 	enemy.add_child(body_visual)
 	var left_eye := make_rect(Vector2(-10, -9), Vector2(5, 7), Color("#f8fafc"))
 	var right_eye := make_rect(Vector2(5, -9), Vector2(5, 7), Color("#f8fafc"))
-	enemy.add_child(left_eye)
-	enemy.add_child(right_eye)
+	left_eye.queue_free()
+	right_eye.queue_free()
+	var slime := Sprite2D.new()
+	slime.texture = SLIME_TEXTURE
+	slime.name = "SlimeVisual"
+	slime.scale = Vector2(0.65, 0.65)
+	slime.position = Vector2(0, -4)
+	enemy.add_child(slime)
 	enemy.body_entered.connect(_on_enemy_touched.bind(enemy))
 	world.add_child(enemy)
 	enemies.append({"node": enemy, "left": left_bound, "right": right_bound, "speed": speed, "direction": 1.0})
@@ -330,6 +382,7 @@ func build_flag(position_value: Vector2) -> void:
 	var pole := make_rect(Vector2(-3, -115), Vector2(6, 115), Color("#e2e8f0"))
 	flag.add_child(pole)
 	var cloth := Polygon2D.new()
+	flag_cloth = cloth
 	cloth.polygon = PackedVector2Array([Vector2(3, -110), Vector2(3, -70), Vector2(-42, -90)])
 	cloth.color = Color("#22c55e")
 	flag.add_child(cloth)
@@ -342,6 +395,15 @@ func _physics_process(delta: float) -> void:
 		return
 
 	platform_time += delta
+	if is_instance_valid(flag_cloth):
+		flag_cloth.polygon = PackedVector2Array([Vector2(3, -110), Vector2(3, -70), Vector2(-42, -90 + sin(platform_time * 4.0) * 5.0)])
+	jump_buffer = maxf(0.0, jump_buffer - delta)
+	if player.is_on_floor():
+		coyote_left = 0.1
+	else:
+		coyote_left = maxf(0.0, coyote_left - delta)
+	if jump_buffer > 0.0 and coyote_left > 0.0:
+		perform_jump(false)
 	if is_instance_valid(moving_platform):
 		moving_platform.position.x = 700.0 + sin(platform_time * 1.8) * 65.0
 
@@ -351,7 +413,7 @@ func _physics_process(delta: float) -> void:
 		direction = -1.0
 	elif Input.is_key_pressed(KEY_D):
 		direction = 1.0
-	player.velocity.x = direction * MOVE_SPEED
+	player.velocity.x = move_toward(player.velocity.x, direction * MOVE_SPEED, (2100.0 if direction != 0 else 1700.0) * delta)
 	if not player.is_on_floor():
 		player.velocity.y += GRAVITY * delta
 	else:
@@ -365,6 +427,15 @@ func _physics_process(delta: float) -> void:
 		player_sprite.frame = 0
 
 	player.move_and_slide()
+	player.position.x = clampf(player.position.x, 18.0, 942.0)
+	if player.is_on_floor() and not was_grounded:
+		burst(player.position, Color("#dce5cc"), 9)
+		player_sprite.scale = Vector2(0.09, 0.061)
+	player_sprite.scale = player_sprite.scale.lerp(Vector2(0.075, 0.075), minf(delta * 13.0, 1.0))
+	player_sprite.rotation = lerpf(player_sprite.rotation, direction * 0.045 if player.is_on_floor() else player.velocity.x * 0.0004, minf(delta * 10.0, 1.0))
+	if not player.is_on_floor():
+		player_sprite.pause()
+	was_grounded = player.is_on_floor()
 	if player.position.y > 570:
 		restart_after_failure("아래로 떨어졌습니다!")
 
@@ -374,23 +445,50 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE:
-			if player.is_on_floor():
-				player.velocity.y = -JUMP_SPEED
-				Sfx.play("jump", -5.0, 0.92, 0.05)
+			jump_buffer = 0.12
+			if player.is_on_floor() or coyote_left > 0.0:
+				perform_jump(false)
 			elif double_jump_available:
-				player.velocity.y = -JUMP_SPEED
-				Sfx.play("jump", -3.0, 1.18, 0.05)
-				double_jump_available = false
-				show_message("이단 점프!", 0.7)
+				perform_jump(true)
+	elif event is InputEventKey and not event.pressed and event.keycode == KEY_SPACE and player.velocity.y < -180.0:
+		player.velocity.y *= 0.55
+
+
+func perform_jump(extra: bool) -> void:
+	player.velocity.y = -JUMP_SPEED
+	jump_buffer = 0.0
+	coyote_left = 0.0
+	if extra:
+		double_jump_available = false
+		show_message("이단 점프!", 0.7)
+	player_sprite.scale = Vector2(0.061, 0.088)
+	burst(player.position, Color("#b5e9f1") if extra else Color("#e3dbc4"), 10)
+	Sfx.play("jump", -5.0, 1.18 if extra else 0.92, 0.05)
+
+
+func burst(at: Vector2, tint: Color, count: int) -> void:
+	for i in count:
+		var spark := make_rect(at, Vector2(3, 3), tint)
+		world.add_child(spark)
+		var angle := TAU * float(i) / float(count)
+		var tween := create_tween().set_parallel(true).bind_node(spark)
+		tween.tween_property(spark, "position", at + Vector2(cos(angle) * 25.0, sin(angle) * 18.0 - 8.0), 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tween.tween_property(spark, "modulate:a", 0.0, 0.35)
+		tween.chain().tween_callback(spark.queue_free)
 
 
 func update_enemies(delta: float) -> void:
 	for enemy_data in enemies:
 		var enemy: Area2D = enemy_data["node"]
-		if not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
+		if not is_instance_valid(enemy) or enemy.is_queued_for_deletion() or enemy.has_meta("defeated"):
 			continue
 		var direction: float = enemy_data["direction"]
 		enemy.position.x += direction * float(enemy_data["speed"]) * delta
+		var slime := enemy.get_node("SlimeVisual") as Sprite2D
+		var wobble := sin(platform_time * 8.0 + float(enemy_data["left"]))
+		slime.scale = Vector2(0.65 + wobble * 0.045, 0.65 - wobble * 0.045)
+		slime.rotation = direction * 0.06
+		slime.flip_h = direction < 0.0
 		if enemy.position.x <= float(enemy_data["left"]):
 			enemy.position.x = float(enemy_data["left"])
 			enemy_data["direction"] = 1.0
@@ -403,6 +501,7 @@ func _on_coin_collected(body: Node2D, coin: Area2D) -> void:
 	if body != player or coin.is_queued_for_deletion():
 		return
 	coins_collected += 1
+	burst(coin.position, Color("#ffe19b"), 16)
 	Sfx.play("coin", -1.0, 1.0 + float(coins_collected - 1) * 0.08)
 	coin.queue_free()
 	update_hud()
@@ -413,6 +512,7 @@ func _on_wing_shoes_collected(body: Node2D, item: Area2D) -> void:
 	if body != player or item.is_queued_for_deletion():
 		return
 	has_wing_shoes = true
+	burst(item.position, Color("#c4f5ff"), 20)
 	Sfx.play("ui_confirm", 0.0, 1.08)
 	double_jump_available = true
 	item.queue_free()
@@ -426,11 +526,17 @@ func _on_spikes_touched(body: Node2D) -> void:
 
 
 func _on_enemy_touched(body: Node2D, enemy: Area2D) -> void:
-	if body != player or finished or enemy.is_queued_for_deletion():
+	if body != player or finished or enemy.is_queued_for_deletion() or enemy.has_meta("defeated"):
 		return
 	if player.velocity.y > 80.0 and player.position.y < enemy.position.y:
 		Sfx.play("enemy_down", -2.0, 1.15, 0.05)
-		enemy.queue_free()
+		burst(enemy.position, Color("#90dbc6"), 18)
+		enemy.set_meta("defeated", true)
+		enemy.set_deferred("monitoring", false)
+		var collapse := create_tween().set_parallel(true).bind_node(enemy)
+		collapse.tween_property(enemy, "scale", Vector2(1.35, 0.12), 0.16)
+		collapse.tween_property(enemy, "modulate:a", 0.0, 0.22)
+		collapse.chain().tween_callback(enemy.queue_free)
 		player.velocity.y = -330.0
 		show_message("슬라임을 밟았습니다!", 0.7)
 	elif not invincible:
@@ -439,6 +545,8 @@ func _on_enemy_touched(body: Node2D, enemy: Area2D) -> void:
 
 func take_damage(enemy_position: Vector2) -> void:
 	Sfx.play("player_hit", -1.0, 0.9, 0.04)
+	burst(player.position - Vector2(0, 20), Color("#ffb3a1"), 15)
+	var generation := stage_generation
 	health -= 1
 	update_hud()
 	if health <= 0:
@@ -449,6 +557,8 @@ func take_damage(enemy_position: Vector2) -> void:
 	player_sprite.modulate = Color("#ffffff66")
 	show_message("몬스터에게 닿았습니다!", 0.8)
 	await get_tree().create_timer(0.85).timeout
+	if generation != stage_generation:
+		return
 	if is_instance_valid(player):
 		player_sprite.modulate = Color.WHITE
 	invincible = false

@@ -7,7 +7,7 @@ const STAGE_COLORS := [
 ]
 const HERO_TEXTURE := preload("res://assets/characters/hero_walk_user_v3.png")
 const CAMPUS_BACKGROUND := preload("res://assets/gachon_campus_pixel_background.png")
-const DOOR_TEXTURE := preload("res://assets/genre_portal_door_pixel.png")
+const DOOR_TEXTURE := preload("res://assets/platform/ordinary_door.svg")
 const WORLD_WIDTH := 4650.0
 const FLOOR_Y := 455.0
 const WALK_SPEED := 260.0
@@ -216,22 +216,13 @@ func build_campus_background() -> void:
 func build_room_gate(index: int, door_x: float) -> void:
 	door_centers.append(door_x)
 
-	var aura := Polygon2D.new()
-	aura.position = Vector2(door_x, 300)
-	aura.polygon = PackedVector2Array([
-		Vector2(-135, 155), Vector2(135, 155), Vector2(126, -74),
-		Vector2(78, -150), Vector2(0, -186), Vector2(-78, -150), Vector2(-126, -74)
-	])
-	aura.color = Color(STAGE_COLORS[index], 0.22)
-	add_child(aura)
-
 	var door := Sprite2D.new()
-	var target_height := 350.0
+	var target_height := 172.0
 	var door_scale: float = target_height / float(DOOR_TEXTURE.get_height())
 	var rendered_width: float = float(DOOR_TEXTURE.get_width()) * door_scale
 	door.texture = DOOR_TEXTURE
 	door.centered = false
-	door.position = Vector2(door_x - rendered_width / 2.0, 105)
+	door.position = Vector2(door_x - rendered_width / 2.0, 283)
 	door.scale = Vector2(door_scale, door_scale)
 	door.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	door.modulate = Color.WHITE.lerp(STAGE_COLORS[index], 0.14)
@@ -239,14 +230,14 @@ func build_room_gate(index: int, door_x: float) -> void:
 	door_visuals.append(door)
 
 	var number_label := make_world_label("ROOM %02d" % (index + 1), 17, Color("#f8fafc"))
-	number_label.position = Vector2(door_x - 75, 183)
+	number_label.position = Vector2(door_x - 75, 234)
 	number_label.size = Vector2(150, 26)
 	number_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	number_label.add_theme_color_override("font_outline_color", Color("#020617"))
 	number_label.add_theme_constant_override("outline_size", 6)
 	add_child(number_label)
 	var genre_label := make_world_label(STAGES[index], 16, Color("#f8fafc"))
-	genre_label.position = Vector2(door_x - 68, 246)
+	genre_label.position = Vector2(door_x - 68, 261)
 	genre_label.size = Vector2(136, 30)
 	genre_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	genre_label.add_theme_color_override("font_outline_color", Color("#020617"))
@@ -254,10 +245,10 @@ func build_room_gate(index: int, door_x: float) -> void:
 	add_child(genre_label)
 
 	var badge_color := Color("#166534") if index == 0 else Color("#7f1d1d")
-	var status_badge := add_rect(Vector2(door_x - 42, 404), Vector2(84, 29), badge_color)
+	var status_badge := add_rect(Vector2(door_x - 42, 460), Vector2(84, 23), badge_color)
 	door_status_badges.append(status_badge)
 	var status_label := make_world_label("OPEN" if index == 0 else "LOCKED", 13, Color.WHITE)
-	status_label.position = Vector2(door_x - 42, 408)
+	status_label.position = Vector2(door_x - 42, 461)
 	status_label.size = Vector2(84, 24)
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	door_status_labels.append(status_label)

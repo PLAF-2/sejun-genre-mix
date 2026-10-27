@@ -2,7 +2,7 @@
 extends Node2D
 
 const CAMPUS_BACKGROUND := preload("res://assets/gachon_campus_pixel_background.png")
-const DOOR_TEXTURE := preload("res://assets/genre_portal_door_pixel.png")
+const DOOR_TEXTURE := preload("res://assets/platform/ordinary_door.svg")
 const STAGES := ["CARD", "PLATFORM", "RHYTHM", "ROGUELIKE", "SHOOTER", "FINAL BOSS"]
 const STAGE_COLORS := [
 	Color("#ef476f"), Color("#ffd166"), Color("#06d6a0"),
@@ -50,21 +50,14 @@ func draw_campus_strip() -> void:
 
 
 func draw_room_door(index: int, door_x: float) -> void:
-	var accent: Color = STAGE_COLORS[index]
-	var aura := PackedVector2Array([
-		Vector2(door_x - 135, 455), Vector2(door_x + 135, 455),
-		Vector2(door_x + 126, 226), Vector2(door_x + 78, 150),
-		Vector2(door_x, 114), Vector2(door_x - 78, 150), Vector2(door_x - 126, 226)
-	])
-	draw_colored_polygon(aura, Color(accent, 0.22))
-	var target_height := 350.0
+	var target_height := 172.0
 	var door_width: float = float(DOOR_TEXTURE.get_width()) * target_height / float(DOOR_TEXTURE.get_height())
-	draw_texture_rect(DOOR_TEXTURE, Rect2(door_x - door_width / 2.0, 105, door_width, target_height), false)
+	draw_texture_rect(DOOR_TEXTURE, Rect2(door_x - door_width / 2.0, 283, door_width, target_height), false)
 
 	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(door_x - 75, 205), "ROOM %02d" % (index + 1), HORIZONTAL_ALIGNMENT_CENTER, 150, 17, Color.WHITE)
-	draw_string(font, Vector2(door_x - 68, 267), STAGES[index], HORIZONTAL_ALIGNMENT_CENTER, 136, 16, Color.WHITE)
+	draw_string(font, Vector2(door_x - 75, 256), "ROOM %02d" % (index + 1), HORIZONTAL_ALIGNMENT_CENTER, 150, 17, Color.WHITE)
+	draw_string(font, Vector2(door_x - 68, 281), STAGES[index], HORIZONTAL_ALIGNMENT_CENTER, 136, 16, Color.WHITE)
 	var badge_color := Color("#166534") if index == 0 else Color("#7f1d1d")
 	var status := "OPEN" if index == 0 else "LOCKED"
-	draw_rect(Rect2(door_x - 42, 404, 84, 29), badge_color)
-	draw_string(font, Vector2(door_x - 42, 426), status, HORIZONTAL_ALIGNMENT_CENTER, 84, 13, Color.WHITE)
+	draw_rect(Rect2(door_x - 42, 460, 84, 23), badge_color)
+	draw_string(font, Vector2(door_x - 42, 478), status, HORIZONTAL_ALIGNMENT_CENTER, 84, 13, Color.WHITE)

@@ -3,11 +3,11 @@ extends Control
 signal game_won
 
 const RHYTHM_TRACK := preload("res://assets/audio/usagi_rap_video_section_45s.mp3")
+const CHART := preload("res://scripts/rhythm_chart.gd")
 const BPM := 105.0
 const BEAT_INTERVAL := 60.0 / BPM
-const PERFECT_WINDOW := 0.075
-const GOOD_WINDOW := 0.17
-const PATH_TILE_COUNT := 79
+const PERFECT_WINDOW := 0.065
+const GOOD_WINDOW := 0.12
 
 var background: ColorRect
 var world: Node2D
@@ -85,7 +85,7 @@ func build_interface() -> void:
 	heart_label = make_label(Vector2(300, 15), Vector2(200, 38), 22, Color("#fb7185"))
 	top_bar.add_child(heart_label)
 
-	combo_label = make_label(Vector2(690, 14), Vector2(245, 38), 21, Color("#67e8f9"))
+	combo_label = make_label(Vector2(520, 14), Vector2(245, 38), 21, Color("#67e8f9"))
 	combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top_bar.add_child(combo_label)
 
@@ -222,7 +222,7 @@ func rebuild_path() -> void:
 	reveal_details.clear()
 
 	var outline := build_chiikawa_outline()
-	path_points = resample_closed_path(outline, PATH_TILE_COUNT)
+	path_points = resample_closed_path(outline, CHART.TIMES.size())
 
 	character_fill = Polygon2D.new()
 	character_fill.polygon = outline
@@ -252,9 +252,10 @@ func rebuild_path() -> void:
 	for i in path_points.size():
 		var tile := Polygon2D.new()
 		tile.position = path_points[i]
-		tile.polygon = PackedVector2Array([Vector2(-7, -7), Vector2(7, -7), Vector2(7, 7), Vector2(-7, 7)])
+		tile.polygon = PackedVector2Array([Vector2(-5, -5), Vector2(5, -5), Vector2(5, 5), Vector2(-5, 5)])
 		tile.rotation = PI / 4.0
-		tile.color = Color("#fde68a") if i == 0 else Color("#334155")
+		var offbeat := absf(CHART.TIMES[i] / BEAT_INTERVAL - roundf(CHART.TIMES[i] / BEAT_INTERVAL)) > 0.15
+		tile.color = Color("#fde68a") if i == 0 else (Color("#216c83") if offbeat else Color("#334155"))
 		world.add_child(tile)
 		tiles.append(tile)
 
@@ -354,7 +355,9 @@ func _process(delta: float) -> void:
 		update_orbs(song_time)
 		pulse_visual(song_time)
 		view_center = view_center.lerp(path_points[target_index - 1], minf(1.0, delta * 8.0))
-		var target_time := float(target_index) * BEAT_INTERVAL
+		var target_time: float = CHART.TIMES[target_index]
+		var spacing: float = CHART.TIMES[target_index] - CHART.TIMES[target_index - 1]
+		status_label.text = "반박 연타 · 하늘색 타일!" if spacing < BEAT_INTERVAL * 0.7 else "음악을 듣고 다음 타일에 맞춰 입력"
 		if song_time - target_time > GOOD_WINDOW:
 			register_miss("LATE")
 	elif state == "reveal" or state == "complete":
@@ -387,7 +390,7 @@ func judge_input() -> void:
 		return
 	# 입력 프레임 직전 _process 값이 아니라 실제 오디오 재생 헤드를 다시 읽어 지연을 줄인다.
 	song_time = get_precise_song_position()
-	var target_time := float(target_index) * BEAT_INTERVAL
+	var target_time: float = CHART.TIMES[target_index]
 	var signed_difference := song_time - target_time
 	var difference := absf(signed_difference)
 	if difference <= PERFECT_WINDOW:
@@ -415,7 +418,7 @@ func register_miss(reason: String) -> void:
 	Sfx.play("ui_error", -4.0, 0.82, 0.03)
 	miss_count += 1
 	combo = 0
-	show_judgement("MISS", Color("#fb7185"), song_time - float(target_index) * BEAT_INTERVAL, reason)
+	show_judgement("MISS", Color("#fb7185"), song_time - CHART.TIMES[target_index], reason)
 	shake_strength = 10.0
 	flash_screen(Color("#ef4444"), 0.22)
 	if hearts <= 0:
@@ -462,8 +465,9 @@ func update_orbs(time_value: float) -> void:
 		previous_point = pivot - (next_point - pivot)
 	else:
 		previous_point = path_points[pivot_index - 1]
-	var step_start := float(target_index - 1) * BEAT_INTERVAL
-	var progress := clampf((time_value - step_start) / BEAT_INTERVAL, 0.0, 1.0)
+	var step_start: float = CHART.TIMES[target_index - 1]
+	var duration: float = CHART.TIMES[target_index] - step_start
+	var progress := clampf((time_value - step_start) / duration, 0.0, 1.0)
 	var start_vector := previous_point - pivot
 	var end_vector := next_point - pivot
 	var radius := end_vector.length()
