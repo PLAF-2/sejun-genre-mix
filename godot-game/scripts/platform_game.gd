@@ -479,6 +479,8 @@ func burst(at: Vector2, tint: Color, count: int) -> void:
 
 func update_enemies(delta: float) -> void:
 	for enemy_data in enemies:
+		if not is_instance_valid(enemy_data["node"]):
+			continue
 		var enemy: Area2D = enemy_data["node"]
 		if not is_instance_valid(enemy) or enemy.is_queued_for_deletion() or enemy.has_meta("defeated"):
 			continue
