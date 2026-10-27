@@ -1,0 +1,25 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Texture2D" path="res://assets/characters/hero_walk_user_v3.png" id="2_hero"]
+[ext_resource type="Script" path="res://scripts/editor_preview.gd" id="3_preview"]
+[ext_resource type="PackedScene" path="res://scenes/final_boss_game.tscn" id="4_boss"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_main")
+
+[node name="EditorPreview" type="Node2D" parent="."]
+script = ExtResource("3_preview")
+
+[node name="Hero" type="Sprite2D" parent="EditorPreview"]
+texture_filter = 1
+position = Vector2(200, 425)
+scale = Vector2(0.082, 0.082)
+texture = ExtResource("2_hero")
+region_enabled = true
+region_rect = Rect2(0, 0, 543, 724)
+
+[node name="GameCanvas" type="CanvasLayer" parent="."]
+
+[node name="FinalBossGame" parent="GameCanvas" instance=ExtResource("4_boss")]
+z_index = 100
