@@ -1,0 +1,88 @@
+name: Build and deploy Godot game
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'godot-game/**'
+      - '.github/workflows/deploy-game.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: godot-pages
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache official Godot engine and templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/bin/godot
+            ~/.local/share/godot/export_templates/4.7.2.stable
+          key: godot-linux-4.7.2-web-windows-v1
+
+      - name: Install official Godot engine and export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable"
+          mkdir -p "$HOME/.local/bin" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          curl --fail --location --retry 3 "$release/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot-engine
+          install -m 755 "/tmp/godot-engine/Godot_v${GODOT_VERSION}-stable_linux.x86_64" "$HOME/.local/bin/godot"
+          curl --fail --location --retry 3 "$release/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -o /tmp/templates.tpz
+          unzip -j -q /tmp/templates.tpz 'templates/version.txt' 'templates/web_nothreads_release.zip' 'templates/windows_release_x86_64.exe' -d "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+
+      - name: Import project and export Web and Windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p web-build windows-build
+          "$HOME/.local/bin/godot" --headless --path godot-game --editor --quit
+          "$HOME/.local/bin/godot" --headless --path godot-game --export-release Web ../web-build/index.html
+          "$HOME/.local/bin/godot" --headless --path godot-game --export-release 'Windows Desktop' ../windows-build/GenreMixGame.exe
+          test -s web-build/index.html
+          test -s web-build/index.wasm
+          test -s web-build/index.pck
+          touch web-build/.nojekyll
+
+      - name: Upload Windows download
+        uses: actions/upload-artifact@v4
+        with:
+          name: GenreMixGame-Windows
+          path: windows-build/
+          retention-days: 30
+
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: web-build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy browser game
+        id: deployment
+        uses: actions/deploy-pages@v4
