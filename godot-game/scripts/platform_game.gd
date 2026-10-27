@@ -6,6 +6,7 @@ const HERO_TEXTURE := preload("res://assets/characters/hero_walk_user_v3.png")
 const GARDEN_TEXTURE := preload("res://assets/platform/campus_garden.svg")
 const LEDGE_TEXTURE := preload("res://assets/platform/garden_ledge.svg")
 const SLIME_TEXTURE := preload("res://assets/platform/slime.svg")
+const STAGE_LAYER := 8 # 복도 바닥과 충돌하지 않는 플랫포머 전용 레이어.
 const MOVE_SPEED := 250.0
 const JUMP_SPEED := 515.0
 const GRAVITY := 1450.0
@@ -142,9 +143,9 @@ func rebuild_stage() -> void:
 	build_coin(Vector2(700, 300))
 	build_wing_shoes(Vector2(395, 449))
 	build_spikes(Vector2(620, 480), Vector2(165, 20))
-	build_enemy(Vector2(315, 465), 275.0, 365.0, 54.0)
-	build_enemy(Vector2(520, 276), 475.0, 575.0, 42.0)
-	build_enemy(Vector2(850, 371), 810.0, 915.0, 48.0)
+	build_enemy(Vector2(315, 488), 275.0, 365.0, 54.0)
+	build_enemy(Vector2(520, 288), 475.0, 575.0, 42.0)
+	build_enemy(Vector2(850, 383), 810.0, 915.0, 48.0)
 	build_flag(Vector2(920, 395))
 	update_hud()
 
@@ -190,8 +191,8 @@ func decorate_ledge(parent: Node2D, origin: Vector2, dimensions: Vector2) -> voi
 func build_solid_rect(position_value: Vector2, size_value: Vector2, color: Color) -> StaticBody2D:
 	var body := StaticBody2D.new()
 	body.position = position_value + size_value / 2.0
-	body.collision_layer = 1
-	body.collision_mask = 1
+	body.collision_layer = STAGE_LAYER
+	body.collision_mask = STAGE_LAYER
 	var shape_node := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
 	shape.size = size_value
@@ -206,8 +207,8 @@ func build_solid_rect(position_value: Vector2, size_value: Vector2, color: Color
 func build_moving_platform() -> void:
 	moving_platform = AnimatableBody2D.new()
 	moving_platform.position = Vector2(675, 390)
-	moving_platform.collision_layer = 1
-	moving_platform.collision_mask = 1
+	moving_platform.collision_layer = STAGE_LAYER
+	moving_platform.collision_mask = STAGE_LAYER
 	moving_platform.sync_to_physics = true
 	var shape_node := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
@@ -226,8 +227,8 @@ func build_moving_platform() -> void:
 func build_player() -> void:
 	player = CharacterBody2D.new()
 	player.position = Vector2(70, 480)
-	player.collision_layer = 1
-	player.collision_mask = 1
+	player.collision_layer = STAGE_LAYER
+	player.collision_mask = STAGE_LAYER
 	var collider := CollisionShape2D.new()
 	var capsule := CapsuleShape2D.new()
 	capsule.radius = 14
@@ -250,7 +251,7 @@ func build_coin(position_value: Vector2) -> void:
 	var coin := Area2D.new()
 	coin.position = position_value
 	coin.collision_layer = 2
-	coin.collision_mask = 1
+	coin.collision_mask = STAGE_LAYER
 	var shape_node := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
 	shape.radius = 15
@@ -285,7 +286,7 @@ func build_wing_shoes(position_value: Vector2) -> void:
 	var item := Area2D.new()
 	item.position = position_value
 	item.collision_layer = 2
-	item.collision_mask = 1
+	item.collision_mask = STAGE_LAYER
 	var shape_node := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
 	shape.size = Vector2(40, 32)
@@ -312,7 +313,7 @@ func build_spikes(position_value: Vector2, size_value: Vector2) -> void:
 	var spikes := Area2D.new()
 	spikes.position = position_value + size_value / 2.0
 	spikes.collision_layer = 2
-	spikes.collision_mask = 1
+	spikes.collision_mask = STAGE_LAYER
 	var shape_node := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
 	shape.size = size_value
@@ -337,7 +338,7 @@ func build_enemy(position_value: Vector2, left_bound: float, right_bound: float,
 	var enemy := Area2D.new()
 	enemy.position = position_value
 	enemy.collision_layer = 2
-	enemy.collision_mask = 1
+	enemy.collision_mask = STAGE_LAYER
 	var shape_node := CollisionShape2D.new()
 	var shape := CapsuleShape2D.new()
 	shape.radius = 17
@@ -372,7 +373,7 @@ func build_flag(position_value: Vector2) -> void:
 	var flag := Area2D.new()
 	flag.position = position_value
 	flag.collision_layer = 2
-	flag.collision_mask = 1
+	flag.collision_mask = STAGE_LAYER
 	var shape_node := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
 	shape.size = Vector2(42, 110)
