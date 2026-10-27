@@ -2,6 +2,9 @@
 
 PLAF 2기 중간 발표용 Godot 게임. 카드, 플랫포머, 리듬, 생존형 로그라이크, 3D FPS를 체험한 뒤 다섯 장르를 연결한 최종 보스전에 도전합니다. 개발 중인 버전입니다.
 
+- 게임 실행: https://plaf-2.github.io/sejun-genre-mix/
+- 공개 소스: https://github.com/PLAF-2/sejun-genre-mix
+
 ## 개발 환경과 실행
 
 - Godot **4.7.2 Standard**를 사용합니다. `godot-game/project.godot`을 가져온 뒤 **F5**로 전체 게임을 실행하세요.
@@ -26,7 +29,7 @@ PLAF 2기 중간 발표용 Godot 게임. 카드, 플랫포머, 리듬, 생존형
 
 `.github/workflows/deploy-game.yml`은 `main`에 게임 변경을 올릴 때 Godot 웹 버전과 Windows 버전을 자동으로 만듭니다. 웹 버전은 GitHub Pages에 배포하고 Windows 파일은 해당 Actions 실행의 `GenreMixGame-Windows` 다운로드로 제공합니다.
 
-저장소의 **Settings → Pages → Source → GitHub Actions**를 선택해야 합니다. 최초 배포가 완료되면 **Settings → Pages** 또는 Actions의 `github-pages` 환경에서 실제 실행 주소를 확인할 수 있습니다.
+저장소의 **Settings → Pages → Source → GitHub Actions** 설정과 첫 배포를 완료했습니다. 이후 게임 변경을 `main`에 올리면 같은 실행 주소가 갱신됩니다.
 
 수정 과정은 `Godot에서 저장 → Git 커밋 → main에 push → Actions 성공 → 같은 웹 주소 새로고침`입니다. 로컬 저장만으로 인터넷 배포가 바뀌지는 않습니다. 배포에는 빌드 시간이 필요하며 플레이 중인 화면이 자동으로 교체되지는 않습니다. 이전 화면이 남으면 Ctrl+Shift+R로 새로고침하세요.
 
