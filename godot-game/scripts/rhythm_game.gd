@@ -177,6 +177,7 @@ func begin_countdown() -> void:
 
 func build_fail_overlay() -> void:
 	fail_overlay = ColorRect.new()
+	fail_overlay.z_index = 20
 	fail_overlay.color = Color("#020617ed")
 	fail_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	fail_overlay.visible = false
@@ -211,6 +212,7 @@ func build_fail_overlay() -> void:
 
 func build_clear_panel() -> void:
 	clear_panel = Panel.new()
+	clear_panel.z_index = 20
 	clear_panel.position = Vector2(285, 382)
 	clear_panel.size = Vector2(390, 130)
 	clear_panel.visible = false

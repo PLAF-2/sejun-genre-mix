@@ -220,6 +220,7 @@ func build_clear_overlay() -> void:
 
 func start_game() -> void:
 	boss_gauntlet_mode = false
+	timer_label.add_theme_font_size_override("font_size", 24)
 	visible = true
 	level_overlay.visible = false
 	fail_overlay.visible = false
@@ -252,6 +253,7 @@ func start_game() -> void:
 
 func start_boss_gauntlet(inherited_skills: Dictionary) -> void:
 	boss_gauntlet_mode = true
+	timer_label.add_theme_font_size_override("font_size", 17)
 	gauntlet_spawned = 0
 	visible = true
 	level_overlay.visible = false
@@ -1058,12 +1060,12 @@ func complete_game() -> void:
 
 func update_hud() -> void:
 	var remaining := maxi(0, int(ceil(GAME_DURATION - elapsed)))
-	timer_label.text = "남은 적 %d · 처치 %d / %d" % [GAUNTLET_KILL_TARGET-kills,kills,GAUNTLET_KILL_TARGET] if boss_gauntlet_mode else "TIME  %02d:%02d" % [remaining / 60, remaining % 60]
+	timer_label.text = "잔여 %d · 처치 %d/%d" % [GAUNTLET_KILL_TARGET-kills,kills,GAUNTLET_KILL_TARGET] if boss_gauntlet_mode else "TIME  %02d:%02d" % [remaining / 60, remaining % 60]
 	health_label.text = "LIFE  " + "♥".repeat(maxi(0, health))
 	if regeneration_ticks > 0:
 		health_label.text += "  +%d" % regeneration_ticks
 	level_label.text = "NO LEVEL UP" if boss_gauntlet_mode else "LEVEL  %d" % level
-	skill_label.text = "🔥 %d/4   ⚡ %d/4   ❄ %d/4" % [skill_levels.fire, skill_levels.lightning, skill_levels.ice]
+	skill_label.text = "불 %d/4 · 번개 %d/4 · 얼음 %d/4" % [skill_levels.fire, skill_levels.lightning, skill_levels.ice]
 	xp_bar.visible = not boss_gauntlet_mode
 	xp_bar.max_value = next_experience
 	xp_bar.value = experience

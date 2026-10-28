@@ -180,7 +180,7 @@ func build_lan_overlay() -> void:
 	lan_overlay.visible = false
 	add_child(lan_overlay)
 	var title := make_label(Vector2(190, 42), Vector2(580, 62), 34, Color("#67e8f9"))
-	title.text = "ROOM 5 · LAN BATTLE"
+	title.text = "ROOM 5 · FPS" if OS.has_feature("web") else "ROOM 5 · LAN BATTLE"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lan_overlay.add_child(title)
 	lan_status = make_label(Vector2(180, 108), Vector2(600, 62), 17, Color("#cbd5e1"))
@@ -249,7 +249,7 @@ func start_game() -> void:
 	lan_overlay.visible = true
 	state = "lobby"
 	role = "solo"
-	lan_status.text = "같은 와이파이에서 한 명은 서버, 한 명은 적 참가를 선택하세요"
+	lan_status.text = "웹에서는 혼자 플레이할 수 있습니다. 같은 와이파이 대전은 Windows 버전을 이용하세요." if OS.has_feature("web") else "같은 와이파이에서 한 명은 서버, 한 명은 적 참가를 선택하세요"
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if "--shooter-auto-host" in OS.get_cmdline_args() or "--shooter-auto-host" in OS.get_cmdline_user_args():
 		call_deferred("host_lan_game")
