@@ -15,6 +15,8 @@ var player_card_nodes: Array[Button] = []
 var opponent_card_nodes: Array[Button] = []
 var turn_busy := false
 var last_result_was_win := false
+var boss_encounter := false
+var round_generation := 0
 
 var status_label: Label
 var opponent_cards: Control
@@ -39,9 +41,18 @@ func build_interface() -> void:
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(background)
+	if boss_encounter:
+		background.color = Color("#141d20")
+		var room := TextureRect.new()
+		room.texture = preload("res://assets/boss_art/card_lounge_v2.png")
+		room.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		room.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		room.stretch_mode = TextureRect.STRETCH_SCALE
+		room.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(room)
 
 	var table := ColorRect.new()
-	table.color = Color("#163d35")
+	table.color = Color("#163d35ce") if boss_encounter else Color("#163d35")
 	table.position = Vector2(25, 205)
 	table.size = Vector2(910, 315)
 	table.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -52,6 +63,7 @@ func build_interface() -> void:
 	portrait_crop.atlas = OPPONENT_TEXTURE
 	portrait_crop.region = Rect2(105, 0, float(OPPONENT_TEXTURE.get_width()) / 4.0 - 145.0, 560)
 	portrait.texture = portrait_crop
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.position = Vector2(42, 20)
 	portrait.size = Vector2(190, 178)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -63,7 +75,7 @@ func build_interface() -> void:
 	var opponent_name := Label.new()
 	opponent_name.position = Vector2(42, 172)
 	opponent_name.size = Vector2(190, 30)
-	opponent_name.text = "상대 (임시 캐릭터)"
+	opponent_name.text = "이상민"
 	opponent_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	opponent_name.add_theme_font_size_override("font_size", 16)
 	opponent_name.add_theme_color_override("font_color", Color("#fca5a5"))
@@ -140,6 +152,7 @@ func build_interface() -> void:
 
 
 func start_game() -> void:
+	round_generation += 1
 	visible = true
 	Sfx.play("card_shuffle", -3.0, 1.0, 0.03)
 	result_overlay.visible = false
@@ -152,34 +165,50 @@ func start_game() -> void:
 	matched_ranks.clear()
 	status_label.text = "상대가 먼저 내 카드를 뽑습니다"
 	refresh_all_cards()
-	call_deferred("opponent_turn")
+	call_deferred("opponent_turn", round_generation)
 
 
-func opponent_turn() -> void:
+func stop_game() -> void:
+	round_generation += 1
+	visible = false
+	turn_busy = true
+
+
+func round_active(ticket: int) -> bool:
+	return ticket == round_generation and is_visible_in_tree()
+
+
+func opponent_turn(expected_round: int = -1) -> void:
+	var ticket := round_generation
+	if expected_round >= 0 and expected_round != ticket: return
 	if not visible or player_hand.is_empty():
 		check_game_over()
 		return
 	turn_busy = true
 	set_opponent_cards_enabled(false)
 	status_label.text = "상대가 카드를 고르는 중..."
-	await get_tree().create_timer(0.75).timeout
+	await get_tree().create_timer(0.75, false).timeout
+	if not round_active(ticket): return
 
 	var chosen_index := randi_range(0, player_hand.size() - 1)
 	var rank := player_hand[chosen_index]
 	var source_position := player_cards.position + player_card_nodes[chosen_index].position
 	var target_position := opponent_cards.position + Vector2(250, 2)
 	await animate_draw(source_position, target_position, rank, true)
+	if not round_active(ticket): return
 	Sfx.play("card_draw", -2.0, 0.94, 0.04)
 	player_hand.remove_at(chosen_index)
 	opponent_hand.append(rank)
 	status_label.text = "상대가 %s 카드를 뽑았습니다" % rank
 	refresh_all_cards()
-	await get_tree().create_timer(0.45).timeout
+	await get_tree().create_timer(0.45, false).timeout
+	if not round_active(ticket): return
 
 	if remove_pair(opponent_hand, rank):
 		Sfx.play("card_pair", -1.0, 0.95, 0.04)
 		status_label.text = "%s 한 쌍이 완성됐습니다!" % rank
 		await animate_pair_to_pile(rank, target_position)
+		if not round_active(ticket): return
 		matched_ranks.append(rank)
 		refresh_all_cards()
 
@@ -199,6 +228,7 @@ func _on_opponent_card_pressed(index: int) -> void:
 
 
 func player_turn(chosen_index: int) -> void:
+	var ticket := round_generation
 	turn_busy = true
 	set_opponent_cards_enabled(false)
 	var rank := opponent_hand[chosen_index]
@@ -206,24 +236,28 @@ func player_turn(chosen_index: int) -> void:
 	var target_position := player_cards.position + Vector2(250, 4)
 	status_label.text = "카드를 뽑는 중..."
 	await animate_draw(source_position, target_position, rank, false)
+	if not round_active(ticket): return
 	Sfx.play("card_draw", -1.0, 1.04, 0.04)
 	opponent_hand.remove_at(chosen_index)
 	player_hand.append(rank)
 	status_label.text = "%s 카드를 뽑았습니다" % rank
 	refresh_all_cards()
-	await get_tree().create_timer(0.4).timeout
+	await get_tree().create_timer(0.4, false).timeout
+	if not round_active(ticket): return
 
 	if remove_pair(player_hand, rank):
 		Sfx.play("card_pair", 0.0, 1.05, 0.04)
 		status_label.text = "%s 한 쌍을 맞췄습니다!" % rank
 		await animate_pair_to_pile(rank, target_position)
+		if not round_active(ticket): return
 		matched_ranks.append(rank)
 		refresh_all_cards()
 
 	if check_game_over():
 		return
 	status_label.text = "다시 상대 차례입니다"
-	await get_tree().create_timer(0.65).timeout
+	await get_tree().create_timer(0.65, false).timeout
+	if not round_active(ticket): return
 	opponent_turn()
 
 
@@ -252,7 +286,7 @@ func show_result(player_won: bool) -> void:
 		result_title.text = "YOU WIN!"
 		result_title.add_theme_color_override("font_color", Color("#4ade80"))
 		result_message.text = "상대에게 조커가 남았습니다"
-		result_button.text = "복도로 돌아가기"
+		result_button.text = "판돈 받으러 가기" if boss_encounter else "복도로 돌아가기"
 	else:
 		Sfx.play("ui_error", 0.0, 0.88)
 		result_title.text = "YOU LOSE"

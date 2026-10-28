@@ -47,6 +47,7 @@ var instruction_label: Label
 var progress_bar: ProgressBar
 var fail_overlay: ColorRect
 var clear_panel: Panel
+var instructions_panel: ColorRect
 
 
 func _ready() -> void:
@@ -54,6 +55,9 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	build_interface()
+	visibility_changed.connect(func() -> void:
+		if not is_visible_in_tree(): music_player.stop()
+	)
 	visible = false
 
 
@@ -130,6 +134,45 @@ func build_interface() -> void:
 
 	build_fail_overlay()
 	build_clear_panel()
+	build_instructions_panel()
+
+
+func build_instructions_panel() -> void:
+	instructions_panel = ColorRect.new()
+	instructions_panel.z_index = 20
+	instructions_panel.color = Color("#080b22f5")
+	instructions_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(instructions_panel)
+	var heading := make_label(Vector2(180, 85), Vector2(600, 55), 32, Color("#fff2bf"))
+	heading.text = "음악을 듣고, 공이 닿을 때 한 번!"
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	instructions_panel.add_child(heading)
+	var guide := RichTextLabel.new()
+	guide.position = Vector2(205, 165)
+	guide.size = Vector2(600, 195)
+	guide.bbcode_enabled = true
+	guide.add_theme_font_size_override("normal_font_size", 21)
+	guide.text = "[color=#a6b5cc]◆ 회색[/color]  기본 박자에 맞춰 진행할 타일\n\n[color=#59d5ee]◆ 하늘색[/color]  박 사이에 들어가는 엇박 타일\n\n[color=#fbbf24]◆ 금색[/color]  성공한 타일     [color=#ef7777]◆ 빨강[/color]  놓친 타일"
+	instructions_panel.add_child(guide)
+	var hint := make_label(Vector2(150, 360), Vector2(660, 55), 18, Color("#dce6f6"))
+	hint.text = "색이 달라도 입력은 SPACE / 클릭 한 번으로 같아요.\n회전하는 공이 다음 타일에 닿는 순간 누르세요."
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	instructions_panel.add_child(hint)
+	var start := Button.new()
+	start.position = Vector2(330, 437)
+	start.size = Vector2(300, 58)
+	start.text = "준비 완료 · 시작 (SPACE)"
+	start.pressed.connect(begin_countdown)
+	instructions_panel.add_child(start)
+
+
+func begin_countdown() -> void:
+	if state != "instructions":
+		return
+	instructions_panel.visible = false
+	state = "countdown"
+	countdown_left = 3.0
+	status_label.text = "준비 · 3"
 
 
 func build_fail_overlay() -> void:
@@ -195,7 +238,8 @@ func start_game() -> void:
 	instruction_label.visible = true
 	judge_label.visible = false
 	timing_label.visible = false
-	state = "countdown"
+	state = "instructions"
+	instructions_panel.visible = true
 	countdown_left = 3.0
 	song_time = 0.0
 	target_index = 1
@@ -370,8 +414,15 @@ func get_precise_song_position() -> float:
 	return maxf(0.0, music_player.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency())
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if not visible or state != "playing":
+func _input(event: InputEvent) -> void:
+	if not visible or get_tree().paused:
+		return
+	if state == "instructions":
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE:
+			begin_countdown()
+			get_viewport().set_input_as_handled()
+		return
+	if state != "playing":
 		return
 	var pressed := false
 	if event is InputEventKey:
@@ -523,7 +574,7 @@ func spawn_impact(world_position: Vector2, color: Color) -> void:
 		shard_tween.tween_property(shard, "position", target, 0.34).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		shard_tween.tween_property(shard, "rotation", randf_range(-2.5, 2.5), 0.34)
 		shard_tween.tween_property(shard, "modulate:a", 0.0, 0.34).set_delay(0.08)
-	get_tree().create_timer(0.5).timeout.connect(impact_root.queue_free)
+	get_tree().create_timer(0.5, false).timeout.connect(impact_root.queue_free)
 
 
 func squash_orbs() -> void:

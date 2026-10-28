@@ -32,3 +32,7 @@ tools/
 godot-game/assets/3d/club_leader_boss/references/
 godot-game/assets/3d/club_leader_boss/*preview.png
 godot-game/assets/3d/club_leader_boss/*preview.png.import
+
+/blender_project/third_party/snow/
+
+/blender_project/motion_sources/mixamo/

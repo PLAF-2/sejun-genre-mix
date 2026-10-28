@@ -14,3 +14,8 @@ Sounds, RPG Audio, Impact Sounds, and Sci-fi Sounds asset packs.
 
 The files were renamed for their in-game roles. Attribution is not required by
 CC0, but these credits are retained for project documentation.
+
+`gunshot_auto.wav` is a shortened, softly faded derivative of the CC0 `gunshot.ogg`.
+`boss_charge_clean.wav` is a new, project-specific synthesized low wind/impact sound;
+it does not use a third-party recording. The older charge OGG remains as a source
+backup and is no longer mapped to the charge event.

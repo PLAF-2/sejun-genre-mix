@@ -7,10 +7,10 @@ const ARENA_SIZE := Vector2(960, 540)
 const PLAYER_SPEED := 235.0
 const GAME_DURATION := 60.0
 const HERO_TEXTURE := preload("res://assets/characters/hero_walk_user_v3.png")
-const ENEMY_SHEET := preload("res://assets/characters/roguelike_enemies.png")
-const BOSS_TEXTURE := preload("res://assets/characters/club_leader_boss_idle_v4.png")
+const AI_TEXTURES := [preload("res://assets/ai-logos/grok-badge.svg"), preload("res://assets/ai-logos/gemini-color-badge.svg"), preload("res://assets/ai-logos/claude-color-badge.svg")]
+const BOSS_TEXTURE := preload("res://assets/ai-logos/openai-badge.svg")
 const ENEMY_CELL_SIZE := 724.0
-const GAUNTLET_KILL_TARGET := 70
+const GAUNTLET_KILL_TARGET := 120
 
 var world: Node2D
 var player: Node2D
@@ -41,6 +41,7 @@ var kills := 0
 var regeneration_ticks := 0
 var regeneration_timer := 0.0
 var boss_gauntlet_mode := false
+var gauntlet_spawned := 0
 var gauntlet_skill_snapshot := {"fire": 1, "lightning": 0, "ice": 0}
 
 var timer_label: Label
@@ -87,7 +88,7 @@ func build_interface() -> void:
 	top_bar.add_child(health_label)
 	level_label = make_label(Vector2(420, 15), Vector2(180, 40), 21, Color("#86efac"))
 	top_bar.add_child(level_label)
-	skill_label = make_label(Vector2(590, 12), Vector2(345, 46), 16, Color("#bae6fd"))
+	skill_label = make_label(Vector2(590, 12), Vector2(185, 46), 14, Color("#bae6fd"))
 	skill_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top_bar.add_child(skill_label)
 
@@ -251,6 +252,7 @@ func start_game() -> void:
 
 func start_boss_gauntlet(inherited_skills: Dictionary) -> void:
 	boss_gauntlet_mode = true
+	gauntlet_spawned = 0
 	visible = true
 	level_overlay.visible = false
 	fail_overlay.visible = false
@@ -275,6 +277,7 @@ func start_boss_gauntlet(inherited_skills: Dictionary) -> void:
 	for key in ["fire", "lightning", "ice"]:
 		skill_levels[key] = clampi(int(inherited_skills.get(key, 0)), 0, 4)
 	gauntlet_skill_snapshot = skill_levels.duplicate(true)
+	if int(skill_levels.fire)+int(skill_levels.lightning)+int(skill_levels.ice) == 0: skill_levels.fire = 1
 	level = int(skill_levels.fire) + int(skill_levels.lightning) + int(skill_levels.ice)
 	clear_world()
 	build_arena()
@@ -300,7 +303,7 @@ func build_arena() -> void:
 			tile.position = Vector2(x, y)
 			tile.polygon = PackedVector2Array([Vector2.ZERO, Vector2(62, 0), Vector2(62, 62), Vector2(0, 62)])
 			tile.color = Color("#0f2f35") if (x / 64 + y / 64 as int) % 2 == 0 else Color("#123941")
-			tile.z_index = -10
+			tile.z_index = 0
 			world.add_child(tile)
 
 
@@ -310,9 +313,6 @@ func build_player() -> void:
 	player.position = player_position
 	player.z_index = 5
 	world.add_child(player)
-	var aura := make_circle(25.0, Color("#38bdf822"))
-	aura.z_index = -2
-	player.add_child(aura)
 	player_sprite = AnimatedSprite2D.new()
 	player_sprite.sprite_frames = make_hero_frames()
 	player_sprite.animation = "walk"
@@ -386,16 +386,17 @@ func make_hero_frames() -> SpriteFrames:
 
 func update_spawning(delta: float) -> void:
 	if boss_gauntlet_mode:
-		if kills >= GAUNTLET_KILL_TARGET:
+		if gauntlet_spawned >= GAUNTLET_KILL_TARGET:
 			return
-		if enemies.size() >= 85:
+		if enemies.size() >= 55:
 			return
 		spawn_timer -= delta
 		if spawn_timer <= 0.0:
-			var burst_count := randi_range(3, 5)
+			var burst_count := mini(6,mini(55-enemies.size(),GAUNTLET_KILL_TARGET-gauntlet_spawned))
 			for i in burst_count:
-				spawn_enemy(randf() < 0.16)
-			spawn_timer = randf_range(0.16, 0.25)
+				spawn_enemy(randf() < 0.10)
+				gauntlet_spawned += 1
+			spawn_timer = 0.24
 		return
 	if elapsed >= GAME_DURATION:
 		return
@@ -435,7 +436,7 @@ func spawn_enemy(elite: bool) -> void:
 	node.add_child(sprite)
 	var beginner_phase := not boss_gauntlet_mode and level < 3 and not elite
 	enemies.append({
-		"node": node, "hp": 3.4 if beginner_phase else 4.2 if boss_gauntlet_mode and not elite else 5.5 if not elite else 13.0 if boss_gauntlet_mode else 16.0,
+		"node": node, "hp": 3.4 if beginner_phase else 3.2 if boss_gauntlet_mode and not elite else 5.5 if not elite else 8.5 if boss_gauntlet_mode else 16.0,
 		"speed": randf_range(48.0, 62.0) if beginner_phase else randf_range(72.0, 98.0) if boss_gauntlet_mode and not elite else randf_range(68.0, 88.0) if not elite else 68.0 if boss_gauntlet_mode else 60.0,
 		"radius": radius, "xp": 1 if not elite else 3,
 		"slow": 0.0, "boss": false
@@ -465,8 +466,8 @@ func spawn_boss() -> void:
 	boss_sprite.sprite_frames = make_boss_idle_frames()
 	boss_sprite.animation = "idle"
 	boss_sprite.scale = Vector2.ONE * (158.0 / float(BOSS_TEXTURE.get_height()))
-	boss_sprite.position = Vector2(0, -29)
-	boss_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	boss_sprite.position = Vector2(0, -10)
+	boss_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	node.add_child(boss_sprite)
 	boss_sprite.play("idle")
 	enemies.append({"node": node, "hp": 300.0, "speed": 46.0, "radius": 50.0, "xp": 0, "slow": 0.0, "boss": true})
@@ -479,12 +480,7 @@ func make_boss_idle_frames() -> SpriteFrames:
 	frames.add_animation("idle")
 	frames.set_animation_speed("idle", 3.2)
 	frames.set_animation_loop("idle", true)
-	var frame_width := float(BOSS_TEXTURE.get_width()) / 4.0
-	for index in 4:
-		var atlas := AtlasTexture.new()
-		atlas.atlas = BOSS_TEXTURE
-		atlas.region = Rect2(frame_width * index, 0, frame_width, BOSS_TEXTURE.get_height())
-		frames.add_frame("idle", atlas)
+	frames.add_frame("idle", BOSS_TEXTURE)
 	return frames
 
 
@@ -792,7 +788,8 @@ func kill_enemy(enemy: Dictionary) -> void:
 	kills += 1
 	if boss_gauntlet_mode and not was_boss:
 		spawn_gauntlet_kill_burst(death_position, kills)
-		if kills >= GAUNTLET_KILL_TARGET:
+		if kills % 15 == 0: spawn_healing_item(death_position)
+		if gauntlet_spawned >= GAUNTLET_KILL_TARGET and enemies.is_empty():
 			complete_boss_gauntlet()
 			return
 	if was_boss:
@@ -1026,7 +1023,7 @@ func complete_boss_gauntlet() -> void:
 	state = "clear"
 	message_label.text = "부하 섬멸 완료 · %d KILL!" % kills
 	flash_world(Color("#fde047"))
-	await get_tree().create_timer(0.65).timeout
+	await get_tree().create_timer(0.65, false).timeout
 	visible = false
 	boss_gauntlet_won.emit()
 
@@ -1061,7 +1058,7 @@ func complete_game() -> void:
 
 func update_hud() -> void:
 	var remaining := maxi(0, int(ceil(GAME_DURATION - elapsed)))
-	timer_label.text = "KILLS  %d / %d" % [kills, GAUNTLET_KILL_TARGET] if boss_gauntlet_mode else "TIME  %02d:%02d" % [remaining / 60, remaining % 60]
+	timer_label.text = "남은 적 %d · 처치 %d / %d" % [GAUNTLET_KILL_TARGET-kills,kills,GAUNTLET_KILL_TARGET] if boss_gauntlet_mode else "TIME  %02d:%02d" % [remaining / 60, remaining % 60]
 	health_label.text = "LIFE  " + "♥".repeat(maxi(0, health))
 	if regeneration_ticks > 0:
 		health_label.text += "  +%d" % regeneration_ticks
@@ -1129,11 +1126,8 @@ func make_ring(outer_radius: float, inner_radius: float, color: Color) -> Polygo
 
 
 func make_enemy_sprite(index: int, target_height: float) -> Sprite2D:
-	var atlas := AtlasTexture.new()
-	atlas.atlas = ENEMY_SHEET
-	atlas.region = Rect2(ENEMY_CELL_SIZE * index, 0, ENEMY_CELL_SIZE, ENEMY_CELL_SIZE)
 	var sprite := Sprite2D.new()
-	sprite.texture = atlas
-	sprite.scale = Vector2.ONE * (target_height / ENEMY_CELL_SIZE)
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.texture = AI_TEXTURES[index % AI_TEXTURES.size()]
+	sprite.scale = Vector2.ONE * (target_height / 128.0)
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	return sprite

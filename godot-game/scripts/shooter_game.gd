@@ -4,13 +4,15 @@ signal game_won
 
 const GAME_DURATION := 50.0
 const ENEMY_COUNT := 8
-const MAGAZINE_SIZE := 6
+const MAGAZINE_SIZE := 30
 const RELOAD_TIME := 1.45
 const PLAYER_SPEED := 6.2
 const MOUSE_SENSITIVITY := 0.0022
 const GRAVITY := 18.0
 const JUMP_SPEED := 7.0
 const ROBOT_ARMOR_TEXTURE := preload("res://assets/characters/enemy_robot_armor_texture.png")
+const GUN_EFFECTS := preload("res://scripts/gun_effects.gd")
+const CONCRETE_DETAIL := preload("res://assets/platform/concrete_detail.tres")
 const LAN_PORT := 7005
 const HUMAN_SPAWN_KILLS := ENEMY_COUNT
 const HOST_DUEL_SPAWN := Vector3(0, 1.05, 8)
@@ -23,7 +25,14 @@ var player_collision: CollisionShape3D
 var player_capsule: CapsuleShape3D
 var camera: Camera3D
 var gun: Node3D
+var fists: Node3D
+var knife: Node3D
+var weapon_slot := 2
+var attack_timer := 0.0
+var reload_motion: Tween
+var weapon_label: Label
 var muzzle_flash: OmniLight3D
+var muzzle_mesh: MeshInstance3D
 var targets: Array[Dictionary] = []
 var state := "idle"
 var elapsed := 0.0
@@ -89,7 +98,7 @@ func build_interface() -> void:
 	health_label = make_label(Vector2(175, 13), Vector2(180, 42), 21, Color("#fb7185"))
 	ammo_label = make_label(Vector2(340, 9), Vector2(280, 50), 22, Color.WHITE)
 	ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	score_label = make_label(Vector2(690, 13), Vector2(245, 42), 19, Color("#c4b5fd"))
+	score_label = make_label(Vector2(620, 13), Vector2(155, 42), 16, Color("#d4c7a5"))
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	for label in [timer_label, health_label, ammo_label, score_label]: top.add_child(label)
 	mission_label = make_label(Vector2(20, 83), Vector2(300, 36), 19, Color("#7dd3fc"))
@@ -258,7 +267,8 @@ func begin_player_game(selected_role: String) -> void:
 	elapsed = 0.0
 	health = 100
 	ammo = MAGAZINE_SIZE
-	reserve_ammo = 48
+	reserve_ammo = 120
+	attack_timer = 0
 	reload_timer = 0.0
 	enemy_left = ENEMY_COUNT
 	score = 0
@@ -488,9 +498,9 @@ func build_map() -> void:
 		create_box(p, Vector3(1.2, 1.2, 1.2), Color("#475569"), true)
 	# 푸른 잔디맵 대신 네온 격자와 창문이 있는 캠퍼스 훈련장 분위기.
 	for x in range(-12, 13, 2):
-		create_box(Vector3(float(x), 0.015, -2), Vector3(0.025, 0.025, 25), Color("#0ea5e9"), false)
+		create_box(Vector3(float(x), 0.015, -2), Vector3(0.025, 0.025, 25), Color("#38414b"), false)
 	for z in range(-14, 11, 2):
-		create_box(Vector3(0, 0.018, float(z)), Vector3(24, 0.025, 0.025), Color("#6366f1"), false)
+		create_box(Vector3(0, 0.018, float(z)), Vector3(24, 0.025, 0.025), Color("#38414b"), false)
 	for x in [-9.0, -6.0, 5.0, 8.0]:
 		create_box(Vector3(x, 2.4, -14.62), Vector3(1.6, 1.1, 0.04), Color("#38bdf8"), false)
 
@@ -523,6 +533,127 @@ func build_player() -> void:
 	muzzle_flash.light_energy = 0.0
 	muzzle_flash.omni_range = 3.0
 	gun.add_child(muzzle_flash)
+	muzzle_mesh = create_mesh_sphere(0.085, Color("#fff0cb"))
+	muzzle_mesh.material_override = GUN_EFFECTS.glow(Color("#ffdc90"), 5.0)
+	muzzle_mesh.position = muzzle_flash.position
+	muzzle_mesh.scale = Vector3(0.5, 0.5, 1.9)
+	muzzle_mesh.visible = false
+	gun.add_child(muzzle_mesh)
+	for x in [-0.07, 0.07]:
+		var sight := create_mesh_box(Vector3(0.025, 0.05, 0.035), Color("#10171d"))
+		sight.position = Vector3(x, 0.14, 0.05)
+		gun.add_child(sight)
+	var barrel := MeshInstance3D.new()
+	var barrel_mesh := CylinderMesh.new()
+	barrel_mesh.top_radius = 0.055
+	barrel_mesh.bottom_radius = 0.055
+	barrel_mesh.height = 0.49
+	barrel_mesh.radial_segments = 16
+	barrel.mesh = barrel_mesh
+	barrel.material_override = make_material(Color("#252a2c"))
+	barrel.position = Vector3(0, 0.05, -0.68)
+	barrel.rotation_degrees.x = 90
+	gun.add_child(barrel)
+	for i in 5:
+		var groove := create_mesh_box(Vector3(0.226, 0.013, 0.025), Color("#111619"))
+		groove.position = Vector3(0, 0.098, 0.07 - i * 0.045)
+		gun.add_child(groove)
+	var port := create_mesh_box(Vector3(0.012, 0.065, 0.13), Color("#0c1215"))
+	port.position = Vector3(0.115, 0.03, -0.25)
+	gun.add_child(port)
+	var hand := create_mesh_sphere(0.12, Color("#b79479"))
+	hand.scale = Vector3(0.85, 1.6, 1.0)
+	hand.position = Vector3(0.02, -0.26, 0.04)
+	gun.add_child(hand)
+	build_melee_weapons()
+	select_weapon(2)
+
+
+func build_melee_weapons() -> void:
+	fists = Node3D.new()
+	fists.position = Vector3(0,-0.32,-0.58)
+	camera.add_child(fists)
+	for side in [-1,1]:
+		var fist := create_mesh_sphere(0.115,Color("#bc9377"))
+		fist.position = Vector3(side*0.26,0,0)
+		fist.scale = Vector3(0.8,0.85,1.3)
+		fists.add_child(fist)
+		for i in 4:
+			var knuckle := create_mesh_sphere(.026,Color("#cba68b"))
+			knuckle.position = Vector3(side*.26+(i-1.5)*.037,.04,-.105)
+			fists.add_child(knuckle)
+	knife = Node3D.new()
+	knife.position = Vector3(.37,-.30,-.62)
+	camera.add_child(knife)
+	var grip := create_mesh_box(Vector3(.075,.075,.25),Color("#202b2b"))
+	knife.add_child(grip)
+	var guard := create_mesh_box(Vector3(.19,.035,.045),Color("#909da3"))
+	guard.position.z = -.15
+	knife.add_child(guard)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var verts := [Vector3(-.06,0,-.16),Vector3(.06,0,-.16),Vector3(.045,0,-.46),Vector3(0,0,-.65),Vector3(-.045,0,-.46),Vector3(0,.018,-.30)]
+	for face in [[0,1,5],[1,2,5],[2,3,5],[3,4,5],[4,0,5]]:
+		for index in face: surface.add_vertex(verts[index])
+	surface.generate_normals()
+	var blade := MeshInstance3D.new()
+	blade.mesh = surface.commit()
+	var steel := make_material(Color("#c4d1d6"))
+	steel.metallic = .85
+	steel.roughness = .25
+	steel.cull_mode = BaseMaterial3D.CULL_DISABLED
+	blade.material_override = steel
+	knife.add_child(blade)
+	if not is_instance_valid(weapon_label):
+		weapon_label = make_label(Vector2(22,473),Vector2(910,34),18,Color("#e8ded0"))
+		add_child(weapon_label)
+
+
+func select_weapon(slot: int) -> void:
+	if reload_motion != null and reload_motion.is_valid(): reload_motion.kill()
+	weapon_slot = slot
+	reload_timer = 0
+	reload_bar.visible = false
+	reload_label.visible = false
+	gun.visible = slot == 2
+	fists.visible = slot == 1
+	knife.visible = slot == 3
+	gun.position = Vector3(.48,-.36,-.75)
+	gun.rotation_degrees = Vector3.ZERO
+	weapon_label.text = "1 맨손   ·   2 자동사격 총   ·   3 칼   |   선택: " + ["맨손","총","칼"][slot-1]
+	message_label.text = ["맨손 장착 · 가까이서 클릭","총 장착 · 클릭 유지로 연사 / R 재장전","칼 장착 · 가까이서 클릭"][slot-1]
+	update_hud()
+
+
+func use_weapon() -> void:
+	if attack_timer > 0: return
+	if weapon_slot == 2: shoot()
+	else: melee_attack()
+
+
+func melee_attack() -> void:
+	attack_timer = .42 if weapon_slot == 1 else .62
+	var visual := fists if weapon_slot == 1 else knife
+	var home := visual.position
+	var swing := visual.create_tween()
+	swing.tween_property(visual,"position",home+Vector3(-.12,.04,-.23),.09).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	swing.tween_property(visual,"position",home,.20).set_trans(Tween.TRANS_SINE)
+	var origin := camera.global_position
+	var query := PhysicsRayQueryParameters3D.create(origin,origin-camera.global_basis.z*(2.0 if weapon_slot==1 else 2.7),3)
+	query.collide_with_areas = true
+	var exclusions: Array[RID] = [player.get_rid()]
+	for target in targets:
+		if is_instance_valid(target.node): exclusions.append(target.node.get_rid())
+	query.exclude = exclusions
+	var result := camera.get_world_3d().direct_space_state.intersect_ray(query)
+	Sfx.play("hit",-15,1.3)
+	if result.is_empty(): return
+	var zone := "fist" if weapon_slot == 1 else "knife"
+	if result.collider.has_meta("network_player") and role == "enemy":
+		request_host_damage.rpc_id(1,zone)
+	elif result.collider.has_meta("target_id"):
+		var index: int = result.collider.get_meta("target_id")
+		if index >= 0 and index < targets.size(): hit_target(targets[index],zone)
 
 
 func spawn_mission_targets() -> void:
@@ -555,6 +686,7 @@ func spawn_target(position_value: Vector3, human_controlled: bool = false) -> vo
 		leg.position = Vector3(0.22 * side, 0.4, 0)
 		root.add_child(leg)
 	var enemy_weapon := Node3D.new()
+	enemy_weapon.name = "EnemyWeapon"
 	enemy_weapon.position = Vector3(0.12, 1.28, 0.42)
 	root.add_child(enemy_weapon)
 	var enemy_gun := create_mesh_box(Vector3(0.20, 0.20, 0.92), Color("#111827"), ROBOT_ARMOR_TEXTURE)
@@ -566,6 +698,10 @@ func spawn_target(position_value: Vector3, human_controlled: bool = false) -> vo
 	var gun_sight := create_mesh_box(Vector3(0.08, 0.10, 0.18), color)
 	gun_sight.position = Vector3(0, 0.14, 0.18)
 	enemy_weapon.add_child(gun_sight)
+	var enemy_muzzle := Node3D.new()
+	enemy_muzzle.name = "Muzzle"
+	enemy_muzzle.position = Vector3(0, 0, 0.82)
+	enemy_weapon.add_child(enemy_muzzle)
 	var shape_node := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
 	shape.radius = 0.48
@@ -579,7 +715,7 @@ func spawn_target(position_value: Vector3, human_controlled: bool = false) -> vo
 	add_target_hitbox(root, target_id, "legs", Vector3(0, 0.38, 0), Vector3(0.68, 0.72, 0.52))
 	var move_direction := Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
 	targets.append({"node": root, "collider": root, "hp": 100, "alive": true, "human": human_controlled,
-		"attack": randf_range(2.5, 4.5), "move_timer": randf_range(1.2, 2.8),
+		"attack": randf_range(2.5, 4.5), "burst_left": 0, "move_timer": randf_range(1.2, 2.8),
 		"move_direction": move_direction, "speed": randf_range(0.65, 1.15)})
 
 
@@ -616,6 +752,8 @@ func add_network_hitbox(root: Node3D, zone: String, position_value: Vector3, siz
 func _physics_process(delta: float) -> void:
 	if not visible or state not in ["playing", "playing_enemy"] or not is_instance_valid(player): return
 	if state == "playing": elapsed += delta
+	attack_timer = maxf(0,attack_timer-delta)
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED: use_weapon()
 	if reload_timer > 0:
 		reload_timer -= delta
 		reload_bar.value = RELOAD_TIME - maxf(0, reload_timer)
@@ -658,8 +796,9 @@ func _physics_process(delta: float) -> void:
 		update_targets(delta)
 		if role == "host" and remote_peer_id != 0:
 			sync_host_transform.rpc_id(remote_peer_id, player.position, player.rotation.y)
-	shot_kick = move_toward(shot_kick, 0, delta * 7)
-	gun.rotation_degrees.x = shot_kick
+	shot_kick = move_toward(shot_kick, 0, delta * 65)
+	if reload_timer <= 0.0:
+		gun.rotation_degrees.x = shot_kick
 	if state == "playing" and elapsed >= GAME_DURATION: fail_game("제한 시간 안에 적 로봇을 모두 처치하지 못했습니다")
 	update_hud()
 
@@ -672,27 +811,36 @@ func _input(event: InputEvent) -> void:
 		player.rotation.y = yaw
 		camera.rotation.x = pitch
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		shoot()
+		use_weapon()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE:
 		if player.is_on_floor() and not is_crouching:
 			player.velocity.y = JUMP_SPEED
 		get_viewport().set_input_as_handled()
-	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_1,KEY_2,KEY_3]:
+		select_weapon(int(event.keycode-KEY_1)+1)
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R and weapon_slot == 2:
 		begin_reload()
 		get_viewport().set_input_as_handled()
 
 
 func shoot() -> void:
-	if reload_timer > 0: return
+	if reload_timer > 0 or attack_timer > 0 or weapon_slot != 2: return
+	attack_timer = .12
 	if ammo <= 0:
 		begin_reload()
 		return
 	ammo -= 1
-	Sfx.play("gunshot", -5.0, 0.82, 0.05)
+	Sfx.play("gunshot_auto", -10.0, 1.0, 0.02)
 	shot_kick = 9
 	muzzle_flash.light_energy = 5
 	create_tween().tween_property(muzzle_flash, "light_energy", 0, 0.08)
+	muzzle_mesh.visible = true
+	get_tree().create_timer(0.045, false).timeout.connect(func() -> void:
+		if is_instance_valid(muzzle_mesh): muzzle_mesh.visible = false
+	)
+	GUN_EFFECTS.casing(world_3d, gun.global_position, camera.global_transform.basis.x)
 	var origin := camera.global_position
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + -camera.global_transform.basis.z * 80)
 	query.collide_with_areas = true
@@ -702,6 +850,14 @@ func shoot() -> void:
 		if is_instance_valid(target.node): exclusions.append(target.node.get_rid())
 	query.exclude = exclusions
 	var result := camera.get_world_3d().direct_space_state.intersect_ray(query)
+	var endpoint: Vector3 = result.position if not result.is_empty() else origin - camera.global_transform.basis.z * 60.0
+	# A close wall can block the muzzle even when the camera sees past it.
+	var muzzle_query := PhysicsRayQueryParameters3D.create(muzzle_flash.global_position, endpoint, 1, exclusions)
+	var muzzle_hit := camera.get_world_3d().direct_space_state.intersect_ray(muzzle_query)
+	if not muzzle_hit.is_empty() and muzzle_flash.global_position.distance_to(muzzle_hit.position) < muzzle_flash.global_position.distance_to(endpoint) - 0.08:
+		result = muzzle_hit
+		endpoint = muzzle_hit.position
+	GUN_EFFECTS.shot(world_3d, muzzle_flash.global_position, endpoint, not result.is_empty())
 	if not result.is_empty() and result.collider.has_meta("network_player") and role == "enemy":
 		request_host_damage.rpc_id(1, str(result.collider.get_meta("hit_zone")))
 		message_label.text = "%s 명중!" % zone_name(str(result.collider.get_meta("hit_zone")))
@@ -746,12 +902,16 @@ func hit_target(target: Dictionary, hit_zone: String) -> void:
 
 
 func zone_damage(hit_zone: String) -> int:
+	if hit_zone == "fist": return 25
+	if hit_zone == "knife": return 55
 	if hit_zone == "head": return 60
 	if hit_zone == "legs": return 22
 	return 34
 
 
 func zone_name(hit_zone: String) -> String:
+	if hit_zone == "fist": return "PUNCH"
+	if hit_zone == "knife": return "KNIFE"
 	if hit_zone == "head": return "HEAD"
 	if hit_zone == "legs": return "LEGS"
 	return "BODY"
@@ -770,9 +930,10 @@ func update_targets(delta: float) -> void:
 		node.velocity.z = target.move_direction.z * float(target.speed)
 		node.velocity.y = -0.5
 		node.move_and_slide()
-		if node.get_slide_collision_count() > 0:
-			target.move_direction = Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
-			target.move_timer = randf_range(0.7, 1.5)
+		for collision_index in node.get_slide_collision_count():
+			if absf(node.get_slide_collision(collision_index).get_normal().y) < .5:
+				target.move_direction = Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)).normalized()
+				target.move_timer = randf_range(0.7, 1.5)
 		if absf(node.position.x) > 11.2:
 			node.position.x = clampf(node.position.x, -11.2, 11.2)
 			var bounced_x: Vector3 = target.move_direction
@@ -786,19 +947,39 @@ func update_targets(delta: float) -> void:
 		node.look_at(Vector3(player.global_position.x, node.global_position.y, player.global_position.z), Vector3.UP, true)
 		target.attack = float(target.attack) - delta
 		if target.attack <= 0 and node.global_position.distance_to(player.global_position) < 18:
-			target.attack = randf_range(2.7, 4.6)
+			if int(target.burst_left) <= 0: target.burst_left = 3
+			target.burst_left = int(target.burst_left)-1
+			target.attack = .18 if int(target.burst_left)>0 else randf_range(3.0,4.5)
 			enemy_shoot(node)
 
 
 func enemy_shoot(enemy: Node3D) -> void:
 	Sfx.play("gunshot", -12.0, 0.66, 0.07)
-	var hit := randf() < 0.26
+	var hit := randf() < 0.12
 	var target_position := player.global_position + Vector3(0, 0.65, 0)
 	if not hit:
 		target_position += Vector3(randf_range(-3.8, 3.8), randf_range(-2.0, 2.8), randf_range(-2.0, 2.0))
-	spawn_enemy_tracer(enemy.global_position + Vector3(0, 1.3, 0), target_position)
-	if hit:
+	var body_origin := enemy.global_position + Vector3(0, 1.3, 0)
+	var muzzle := enemy.get_node_or_null("EnemyWeapon/Muzzle") as Node3D
+	var from := muzzle.global_position if muzzle != null else body_origin
+	# Also check the barrel's path so a barrel poking through cover cannot shoot through it.
+	var barrel_hit := trace_enemy_shot(enemy, body_origin, from)
+	if not barrel_hit.is_empty():
+		GUN_EFFECTS.shot(world_3d, body_origin, barrel_hit.position, true)
+		return
+	var result := trace_enemy_shot(enemy, from, target_position)
+	var endpoint: Vector3 = result.position if not result.is_empty() else target_position
+	GUN_EFFECTS.shot(world_3d, from, endpoint, not result.is_empty(), Color("#ffd3a0"))
+	if hit and not result.is_empty() and result.collider == player:
 		damage_player(randi_range(10, 16))
+
+
+func trace_enemy_shot(enemy: Node3D, from: Vector3, to: Vector3) -> Dictionary:
+	var ignored: Array[RID] = []
+	if enemy is CollisionObject3D: ignored.append(enemy.get_rid())
+	var query := PhysicsRayQueryParameters3D.create(from, to, 1, ignored)
+	query.collide_with_areas = false
+	return world_3d.get_world_3d().direct_space_state.intersect_ray(query)
 
 
 func spawn_enemy_tracer(from: Vector3, to: Vector3) -> void:
@@ -815,7 +996,7 @@ func spawn_enemy_tracer(from: Vector3, to: Vector3) -> void:
 	var tracer := MeshInstance3D.new()
 	tracer.mesh = line_mesh
 	world_3d.add_child(tracer)
-	get_tree().create_timer(0.12).timeout.connect(tracer.queue_free)
+	get_tree().create_timer(0.12, false).timeout.connect(tracer.queue_free)
 
 
 func damage_player(amount: int = 12) -> void:
@@ -832,7 +1013,7 @@ func damage_player(amount: int = 12) -> void:
 
 
 func begin_reload() -> void:
-	if reload_timer > 0 or ammo == MAGAZINE_SIZE or reserve_ammo <= 0: return
+	if weapon_slot != 2 or reload_timer > 0 or ammo == MAGAZINE_SIZE or reserve_ammo <= 0: return
 	reload_timer = RELOAD_TIME
 	Sfx.play("reload", -5.0, 0.82)
 	reload_bar.value = 0
@@ -840,6 +1021,7 @@ func begin_reload() -> void:
 	reload_label.visible = true
 	message_label.text = "재장전 중..."
 	var reload_tween := create_tween()
+	reload_motion = reload_tween
 	reload_tween.tween_property(gun, "position", Vector3(0.24, -0.82, -0.58), 0.35)
 	reload_tween.parallel().tween_property(gun, "rotation_degrees", Vector3(-42, 0, 22), 0.35)
 	reload_tween.tween_interval(RELOAD_TIME - 0.70)
@@ -871,7 +1053,7 @@ func update_hud() -> void:
 	var remaining := maxi(0, int(ceil(GAME_DURATION - elapsed)))
 	timer_label.text = "TIME  %02d:%02d" % [remaining / 60, remaining % 60]
 	health_label.text = "HP  %d / 100" % maxi(0, health)
-	ammo_label.text = "재장전 중..." if reload_timer > 0 else "탄창 %d  |  예비 %d" % [ammo, reserve_ammo]
+	ammo_label.text = ("재장전 중..." if reload_timer > 0 else "탄창 %d  |  예비 %d" % [ammo, reserve_ammo]) if weapon_slot == 2 else ("맨손 · 25 피해" if weapon_slot == 1 else "칼 · 55 피해")
 	mission_label.text = "ENEMY  %d / %d" % [enemy_left, ENEMY_COUNT]
 	score_label.text = "SCORE  %06d" % score
 
@@ -896,6 +1078,10 @@ func create_mesh_box(size_value: Vector3, color: Color, texture: Texture2D = nul
 	var mesh := BoxMesh.new()
 	mesh.size = size_value
 	mesh.material = make_material(color, texture)
+	if texture == null and size_value.length() > 2.5:
+		mesh.material.albedo_texture = CONCRETE_DETAIL
+		mesh.material.uv1_triplanar = true
+		mesh.material.uv1_scale = Vector3(0.6, 0.6, 0.6)
 	var instance := MeshInstance3D.new()
 	instance.mesh = mesh
 	return instance

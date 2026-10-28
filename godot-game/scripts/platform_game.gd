@@ -3,12 +3,12 @@ extends Control
 signal game_won
 
 const HERO_TEXTURE := preload("res://assets/characters/hero_walk_user_v3.png")
-const GARDEN_TEXTURE := preload("res://assets/platform/campus_garden.svg")
+const GARDEN_TEXTURE := preload("res://assets/platform/campus_garden_v2.png")
 const LEDGE_TEXTURE := preload("res://assets/platform/garden_ledge.svg")
 const SLIME_TEXTURE := preload("res://assets/platform/slime.svg")
 const STAGE_LAYER := 8 # 복도 바닥과 충돌하지 않는 플랫포머 전용 레이어.
-const MOVE_SPEED := 250.0
-const JUMP_SPEED := 515.0
+const MOVE_SPEED := 275.0
+const JUMP_SPEED := 620.0
 const GRAVITY := 1450.0
 
 var world: Node2D
@@ -134,7 +134,7 @@ func rebuild_stage() -> void:
 	build_scenery()
 	build_ground()
 	build_platform(Vector2(145, 395), Vector2(125, 18))
-	build_platform(Vector2(455, 300), Vector2(145, 18))
+	build_platform(Vector2(435, 300), Vector2(165, 18))
 	build_platform(Vector2(790, 395), Vector2(150, 18))
 	build_moving_platform()
 	build_player()
@@ -153,6 +153,7 @@ func rebuild_stage() -> void:
 func build_scenery() -> void:
 	var scenery := Sprite2D.new()
 	scenery.texture = GARDEN_TEXTURE
+	scenery.scale = Vector2(960.0 / GARDEN_TEXTURE.get_width(), 540.0 / GARDEN_TEXTURE.get_height())
 	scenery.centered = false
 	world.add_child(scenery)
 	for i in 18:
@@ -173,8 +174,9 @@ func build_ground() -> void:
 
 
 func build_platform(position_value: Vector2, size_value: Vector2) -> void:
-	var ledge := build_solid_rect(position_value, size_value, Color("#66564a"))
-	decorate_ledge(ledge, -size_value / 2.0, Vector2(size_value.x, 32))
+	var full_size := Vector2(size_value.x, 32)
+	var ledge := build_solid_rect(position_value, full_size, Color("#66564a"))
+	decorate_ledge(ledge, -full_size / 2.0, full_size)
 
 
 func decorate_ledge(parent: Node2D, origin: Vector2, dimensions: Vector2) -> void:
@@ -212,8 +214,9 @@ func build_moving_platform() -> void:
 	moving_platform.sync_to_physics = true
 	var shape_node := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(105, 18)
+	shape.size = Vector2(105, 28)
 	shape_node.shape = shape
+	shape_node.position.y = 5.0
 	moving_platform.add_child(shape_node)
 	var visual := make_rect(Vector2(-52.5, -9), Vector2(105, 18), Color("#f59e0b"))
 	moving_platform.add_child(visual)
@@ -401,10 +404,14 @@ func _physics_process(delta: float) -> void:
 	jump_buffer = maxf(0.0, jump_buffer - delta)
 	if player.is_on_floor():
 		coyote_left = 0.1
+		double_jump_available = has_wing_shoes
 	else:
 		coyote_left = maxf(0.0, coyote_left - delta)
-	if jump_buffer > 0.0 and coyote_left > 0.0:
-		perform_jump(false)
+	if jump_buffer > 0.0:
+		if coyote_left > 0.0:
+			perform_jump(false)
+		elif double_jump_available:
+			perform_jump(true)
 	if is_instance_valid(moving_platform):
 		moving_platform.position.x = 700.0 + sin(platform_time * 1.8) * 65.0
 
@@ -417,8 +424,6 @@ func _physics_process(delta: float) -> void:
 	player.velocity.x = move_toward(player.velocity.x, direction * MOVE_SPEED, (2100.0 if direction != 0 else 1700.0) * delta)
 	if not player.is_on_floor():
 		player.velocity.y += GRAVITY * delta
-	else:
-		double_jump_available = has_wing_shoes
 
 	if direction != 0.0:
 		player_sprite.flip_h = direction < 0.0
@@ -441,18 +446,13 @@ func _physics_process(delta: float) -> void:
 		restart_after_failure("아래로 떨어졌습니다!")
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if not visible or finished or get_tree().paused:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE:
 			jump_buffer = 0.12
-			if player.is_on_floor() or coyote_left > 0.0:
-				perform_jump(false)
-			elif double_jump_available:
-				perform_jump(true)
-	elif event is InputEventKey and not event.pressed and event.keycode == KEY_SPACE and player.velocity.y < -180.0:
-		player.velocity.y *= 0.55
+			get_viewport().set_input_as_handled()
 
 
 func perform_jump(extra: bool) -> void:
@@ -559,7 +559,7 @@ func take_damage(enemy_position: Vector2) -> void:
 	player.velocity = Vector2(-260.0 if player.position.x < enemy_position.x else 260.0, -300.0)
 	player_sprite.modulate = Color("#ffffff66")
 	show_message("몬스터에게 닿았습니다!", 0.8)
-	await get_tree().create_timer(0.85).timeout
+	await get_tree().create_timer(0.85, false).timeout
 	if generation != stage_generation:
 		return
 	if is_instance_valid(player):
@@ -572,7 +572,7 @@ func restart_after_failure(reason: String) -> void:
 		return
 	finished = true
 	message_label.text = reason + "  다시 시작합니다"
-	await get_tree().create_timer(0.75).timeout
+	await get_tree().create_timer(0.75, false).timeout
 	if visible:
 		rebuild_stage()
 
@@ -603,7 +603,7 @@ func update_hud() -> void:
 func show_message(text_value: String, duration: float) -> void:
 	message_label.text = text_value
 	var expected_text := text_value
-	await get_tree().create_timer(duration).timeout
+	await get_tree().create_timer(duration, false).timeout
 	if message_label.text == expected_text and visible and not finished:
 		message_label.text = "A/D 또는 ←/→ 이동 · SPACE 점프 · 코인 3개를 모아 오른쪽 깃발까지!"
 

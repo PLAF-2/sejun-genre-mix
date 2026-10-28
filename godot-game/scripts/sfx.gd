@@ -14,10 +14,11 @@ const SOUND_PATHS := {
 	"player_hit": "res://assets/audio/sfx/player_hit.ogg",
 	"enemy_down": "res://assets/audio/sfx/enemy_down.ogg",
 	"gunshot": "res://assets/audio/sfx/gunshot.ogg",
+	"gunshot_auto": "res://assets/audio/sfx/gunshot_auto.wav",
 	"boss_fire": "res://assets/audio/sfx/boss_fire.ogg",
 	"boss_ice": "res://assets/audio/sfx/boss_ice.ogg",
 	"boss_lightning": "res://assets/audio/sfx/boss_lightning.ogg",
-	"boss_charge": "res://assets/audio/sfx/boss_charge.ogg",
+	"boss_charge": "res://assets/audio/sfx/boss_charge_clean.wav",
 }
 
 const PLAYER_COUNT := 14
@@ -52,12 +53,13 @@ func play(sound_name: String, volume_db := 0.0, pitch := 1.0, pitch_jitter := 0.
 func play_unique(sound_name: String, volume_db := 0.0, pitch := 1.0, pitch_jitter := 0.0) -> void:
 	if not streams.has(sound_name) or players.is_empty():
 		return
-	if unique_players.has(sound_name):
-		var old_player: AudioStreamPlayer = unique_players[sound_name]
-		if is_instance_valid(old_player) and old_player.playing:
-			old_player.stop()
-	var player := find_available_player()
-	unique_players[sound_name] = player
+	# Exclusive sounds must never retain a voice that the shared pool can reuse.
+	if not unique_players.has(sound_name):
+		var dedicated := AudioStreamPlayer.new()
+		dedicated.bus = "SFX"
+		add_child(dedicated)
+		unique_players[sound_name] = dedicated
+	var player: AudioStreamPlayer = unique_players[sound_name]
 	player.stream = streams[sound_name]
 	player.volume_db = volume_db
 	player.pitch_scale = maxf(0.2, pitch + randf_range(-pitch_jitter, pitch_jitter))

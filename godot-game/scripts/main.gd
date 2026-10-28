@@ -56,6 +56,9 @@ func _ready() -> void:
 	build_world()
 	build_player()
 	build_hud()
+	# Main keeps receiving ESC; gameplay must not inherit its ALWAYS mode.
+	for child in get_children():
+		child.process_mode = Node.PROCESS_MODE_PAUSABLE
 	load_audio_settings()
 	if "--card-preview" in OS.get_cmdline_user_args() or "--card-preview" in OS.get_cmdline_args():
 		call_deferred("_start_card_preview")
@@ -751,7 +754,7 @@ func close_settings() -> void:
 	get_tree().paused = false
 	if shooter_game.visible and shooter_game.state in ["playing", "playing_enemy"]:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	elif final_boss_game.visible and final_boss_game.phase == "shooter":
+	elif final_boss_game.visible and final_boss_game.phase in ["shooter","defeated"]:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	save_audio_settings()
 

@@ -6,23 +6,53 @@ const VIEW_SIZE := Vector2(960, 540)
 const HERO_TEXTURE := preload("res://assets/characters/hero_walk_user_v3.png")
 const CLUB_LEADER_IDLE_TEXTURE := preload("res://assets/characters/club_leader_boss_idle_v4.png")
 const CLUB_LEADER_RUN_TEXTURE := preload("res://assets/characters/club_leader_boss_run_v4.png")
-const CLUB_LEADER_3D_SCENE := preload("res://assets/3d/club_leader_boss/club_leader_boss.glb")
+const CLUB_LEADER_3D_SCENE := preload("res://assets/3d/club_leader_boss/club_leader_boss_mixamo_v7.glb")
 const ROGUELIKE_GAME_SCRIPT := preload("res://scripts/roguelike_game.gd")
+const CARD_GAME_SCRIPT := preload("res://scripts/card_game.gd")
+const GUN_EFFECTS := preload("res://scripts/gun_effects.gd")
+const GARDEN_TEXTURE := preload("res://assets/platform/campus_garden_v2.png")
+const LEDGE_TEXTURE := preload("res://assets/platform/garden_ledge.svg")
+const SLIME_TEXTURE := preload("res://assets/platform/slime.svg")
+const CONCRETE_DETAIL := preload("res://assets/platform/concrete_detail.tres")
+const CARD_LOUNGE_ART := preload("res://assets/boss_art/card_lounge_v2.png")
+const EXIT_ART := preload("res://assets/boss_art/lounge_exit_v2.png")
+const CARD_BACK_ART := preload("res://assets/boss_art/card_back.svg")
+const PRISON_ART := preload("res://assets/boss_art/prison_ending.png")
+const PRISON_GATE := preload("res://assets/boss_art/prison_gate.svg")
+const RHYTHM_FIRE_ART := preload("res://assets/vfx/animated/fire_burst_sheet_0.png")
+const RHYTHM_ICE_ART := preload("res://assets/vfx/boss_ice_burst.png")
+const RHYTHM_LIGHTNING_ART := preload("res://assets/vfx/boss_lightning_strike.png")
+const BOSS_SCORE := preload("res://assets/audio/boss_approach_original.wav")
+const ENDING_SCORE := preload("res://assets/audio/ending_the_entertainer.mp3")
+const BOSS_BEAT := 60.0 / 96.0
+const BOSS_RHYTHM_BEATS := [4.0,5.0,6.0,7.5,8.0,8.25,9.0,10.5,11.0,12.0,13.25,13.5,14.0,15.5,16.0,16.5,17.0,17.5,18.0,19.5,20.0,20.25,21.0,22.0,22.5,23.0,23.5,24.0,25.5,26.0,26.25,27.0,27.5,28.0,28.5,29.0,29.5,30.0,30.5,31.0,31.25,32.0]
 const GROUND_Y := 430.0
 const GRAVITY_2D := 1450.0
 const CHASE_WORLD_WIDTH := 2800.0
-const CHASE_MOVE_SPEED := 255.0
-const CHASE_JUMP_SPEED := 650.0
+const CHASE_MOVE_SPEED := 275.0
+const CHASE_JUMP_SPEED := 620.0
 const SHOOTER_GRAVITY := 18.0
 const SHOOTER_SPEED := 6.4
+const BOSS_CAPTURED_WALK_SPEED := 5.566
 const MOUSE_SENSITIVITY := 0.0022
-const FINAL_BOSS_MAX_HEALTH := 2400
+const FINAL_BOSS_MAX_HEALTH := 3600
 const BOSS_TELEGRAPH_TIME := 1.05
 
 var phase := "idle"
 var next_phase := ""
 var story_lines: Array[String] = []
 var story_index := 0
+var story_char_timer := 0.0
+var story_tween: Tween
+var story_portrait: TextureRect
+var chase_particles: Array[Dictionary] = []
+var chase_last_direction := 1.0
+var rhythm_music: AudioStreamPlayer
+var rhythm_feedback := ""
+var rhythm_feedback_left := 0.0
+var rhythm_impact := 0.0
+var vfx_material_cache: Dictionary = {}
+var combat_render_ready := false
 
 var title_label: Label
 var phase_label: Label
@@ -33,11 +63,37 @@ var speaker_label: Label
 var dialogue_label: Label
 var continue_label: Label
 var card_buttons: Array[Button] = []
+var boss_card_deck: Array[String] = []
+var boss_card_pairs: Array[String] = []
+var card_round_ticket := 0
+var card_pair_panel: StyleBoxFlat
+var roll_time_left := 0.0
+var roll_cooldown := 0.0
+var roll_direction := Vector3.ZERO
+var roll_local := Vector2(0,-1)
+var roll_kind := "forward"
+const ROLL_DURATION := 0.48
+const ROLL_COOLDOWN := 1.4
+var roll_label: Label
+var ending_time := 0.0
+var credits_label: Label
+var credits_mask: Control
 var skill_overlay: ColorRect
 var skill_buttons: Array[Button] = []
 var finish_button: Button
 var chapter_skip_button: Button
 var rogue_room_game: Control
+var boss_card_room: Control
+var freeze_timer := 0.0
+var blind_timer := 0.0
+var blind_overlay: ColorRect
+var burning_zones: Array[Dictionary] = []
+var burn_damage_cooldown := 0.0
+var rhythm_miss_flash := 0.0
+var rhythm_jolt := 0.0
+var ending_music: AudioStreamPlayer
+var defeat_elapsed := 0.0
+var defeat_pose_settled := false
 
 # 플랫포머 추격전
 var chase_time := 0.0
@@ -100,6 +156,13 @@ var boss_right_leg: Node3D
 var boss_left_knee: Node3D
 var boss_right_knee: Node3D
 var boss_skeleton: Skeleton3D
+var boss_animation_player: AnimationPlayer
+var boss_motion_clips: Dictionary = {}
+var boss_turning := false
+var boss_dash_tween: Tween
+var boss_turn_tween: Tween
+var boss_recover_tween: Tween
+var boss_glow_tween: Tween
 var boss_head_bone := -1
 var boss_left_arm_bone := -1
 var boss_right_arm_bone := -1
@@ -126,6 +189,7 @@ var pitch := 0.0
 var arena_attacks: Array[Dictionary] = []
 var boss_bar: ProgressBar
 var reload_bar: ProgressBar
+var reload_hint: Label
 var health_label: Label
 var ammo_label: Label
 var damage_flash: ColorRect
@@ -138,6 +202,13 @@ func _ready() -> void:
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	build_interface()
+	visibility_changed.connect(func() -> void:
+		if not visible:
+			rhythm_music.stop()
+			ending_music.stop()
+			boss_card_room.stop_game()
+			if is_instance_valid(boss_animation_player): boss_animation_player.stop(true)
+	)
 
 
 func build_interface() -> void:
@@ -158,23 +229,46 @@ func build_interface() -> void:
 	story_panel.position = Vector2(95, 330)
 	story_panel.size = Vector2(770, 155)
 	story_panel.z_index = 50
+	var bubble := StyleBoxFlat.new()
+	bubble.bg_color = Color("#171d26f5")
+	bubble.border_color = Color("#8c8169")
+	bubble.set_border_width_all(2)
+	bubble.set_corner_radius_all(14)
+	bubble.shadow_color = Color("#00000080")
+	bubble.shadow_size = 8
+	story_panel.add_theme_stylebox_override("panel", bubble)
 	add_child(story_panel)
-	speaker_label = make_label(Vector2(24, 14), Vector2(720, 30), 19, Color("#fbbf24"))
+	var tail := Polygon2D.new()
+	tail.polygon = PackedVector2Array([Vector2(45, 1), Vector2(65, -14), Vector2(80, 1)])
+	tail.color = bubble.bg_color
+	story_panel.add_child(tail)
+	story_portrait = TextureRect.new()
+	story_portrait.position = Vector2(20, 28)
+	story_portrait.size = Vector2(76, 96)
+	story_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	story_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	story_panel.add_child(story_portrait)
+	speaker_label = make_label(Vector2(112, 14), Vector2(630, 30), 19, Color("#fbbf24"))
 	story_panel.add_child(speaker_label)
-	dialogue_label = make_label(Vector2(24, 47), Vector2(720, 62), 20, Color("#f8fafc"))
+	dialogue_label = make_label(Vector2(112, 47), Vector2(630, 62), 20, Color("#f8fafc"))
 	dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	story_panel.add_child(dialogue_label)
-	continue_label = make_label(Vector2(24, 116), Vector2(720, 24), 14, Color("#94a3b8"))
+	continue_label = make_label(Vector2(112, 116), Vector2(630, 24), 14, Color("#94a3b8"))
 	continue_label.text = "[ SPACE / 클릭 ] 다음"
 	continue_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	story_panel.add_child(continue_label)
 
-	for i in 3:
+	for i in 7:
 		var button := Button.new()
-		button.position = Vector2(300 + i * 135, 225)
-		button.size = Vector2(100, 140)
+		button.position = Vector2(150 + i * 96, 225)
+		button.size = Vector2(84, 118)
 		button.text = "◆\n?\n◆"
+		button.icon = CARD_BACK_ART
+		button.expand_icon = true
+		button.add_theme_constant_override("icon_max_width", 84)
+		button.text = ""
 		button.add_theme_font_size_override("font_size", 26)
+		style_boss_card_back(button)
 		button.visible = false
 		button.pressed.connect(select_boss_card.bind(i))
 		add_child(button)
@@ -227,6 +321,11 @@ func build_interface() -> void:
 	reload_bar.visible = false
 	reload_bar.z_index = 31
 	add_child(reload_bar)
+	reload_hint = make_label(Vector2(320, 345), Vector2(320, 35), 19, Color("#eee1ba"))
+	reload_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	reload_hint.z_index = 40
+	reload_hint.visible = false
+	add_child(reload_hint)
 
 	damage_flash = ColorRect.new()
 	damage_flash.position = Vector2.ZERO
@@ -242,6 +341,13 @@ func build_interface() -> void:
 	damage_indicator.z_index = 421
 	damage_indicator.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(damage_indicator)
+	blind_overlay = ColorRect.new()
+	blind_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	blind_overlay.color = Color("#f7faff")
+	blind_overlay.modulate.a = 0.0
+	blind_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	blind_overlay.z_index = 415
+	add_child(blind_overlay)
 
 	finish_button = Button.new()
 	finish_button.position = Vector2(350, 410)
@@ -252,11 +358,36 @@ func build_interface() -> void:
 	finish_button.z_index = 100
 	finish_button.pressed.connect(finish_room)
 	add_child(finish_button)
+	roll_label = make_label(Vector2(22, 460), Vector2(300, 30), 17, Color("#decdaa"))
+	roll_label.z_index = 40
+	roll_label.visible = false
+	add_child(roll_label)
+	credits_mask = Control.new()
+	credits_mask.position = Vector2(540, 102)
+	credits_mask.size = Vector2(395, 360)
+	credits_mask.clip_contents = true
+	credits_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	credits_mask.z_index = 40
+	credits_mask.visible = false
+	add_child(credits_mask)
+	credits_label = make_label(Vector2(15, 360), Vector2(365, 830), 20, Color("#e7e1d1"))
+	credits_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	credits_label.text = "THIS IS ME\nGENRE MIX GAME\n\n기획 · 개발\n노세준\n\n주인공\n노세준\n\n최종 보스\n동아리장 특별 출연\n\n제작\nGodot · Blender / MPFB\n\n효과음\nKenney · CC0\n\nAI 로고\nLobe Icons · MIT\n\n음악 · 배경 제작 보조\nCodex · OpenAI 이미지 도구\n\n함께해 준 PLAF 동아리원들과\n플레이해 준 여러분께\n\n감사합니다\n\nTHANK YOU FOR PLAYING"
+	credits_mask.add_child(credits_label)
+	credits_label.text = credits_label.text.replace("동아리장 특별 출연", "이상민")
+	credits_label.text = credits_label.text.replace("음악 · 배경 제작 보조", "의상 원본\nSnow Rig © Blender Foundation\nstudio.blender.org · CC BY\n수정·리타게팅 적용\n\n음악 · 배경 제작 보조")
+	credits_label.text = credits_label.text.replace("음악 · 배경 제작 보조", "걷기 모션\nAdobe Mixamo · Walking\n\n음악 · 배경 제작 보조")
+	credits_label.text = credits_label.text.replace("음악 · 배경 제작 보조", "엔딩 음악\nThe Entertainer · Scott Joplin\n연주 Kevin MacLeod\nincompetech.com · CC BY 4.0\n\n음악 · 배경 제작 보조")
 
 	rogue_room_game = ROGUELIKE_GAME_SCRIPT.new()
 	rogue_room_game.z_index = 70
 	rogue_room_game.boss_gauntlet_won.connect(_on_boss_gauntlet_won)
 	add_child(rogue_room_game)
+	boss_card_room = CARD_GAME_SCRIPT.new()
+	boss_card_room.boss_encounter = true
+	boss_card_room.z_index = 70
+	boss_card_room.game_won.connect(_on_boss_card_won)
+	add_child(boss_card_room)
 
 	chapter_skip_button = Button.new()
 	chapter_skip_button.position = Vector2(754, 14)
@@ -266,6 +397,15 @@ func build_interface() -> void:
 	chapter_skip_button.z_index = 500
 	chapter_skip_button.pressed.connect(skip_current_chapter)
 	add_child(chapter_skip_button)
+	rhythm_music = AudioStreamPlayer.new()
+	rhythm_music.stream = BOSS_SCORE
+	rhythm_music.bus = "BGM"
+	add_child(rhythm_music)
+	ending_music = AudioStreamPlayer.new()
+	ending_music.stream = ENDING_SCORE
+	ending_music.bus = "BGM"
+	ending_music.volume_db = -12
+	add_child(ending_music)
 
 
 func start_game() -> void:
@@ -325,6 +465,19 @@ func debug_test_all_phases() -> void:
 
 
 func reset_all() -> void:
+	rhythm_music.stop()
+	ending_music.stop()
+	boss_card_room.stop_game()
+	freeze_timer = 0
+	blind_timer = 0
+	blind_overlay.modulate.a = 0
+	clear_burning_zones()
+	reload_hint.visible = false
+	roll_label.visible = false
+	credits_mask.visible = false
+	roll_time_left = 0.0
+	roll_cooldown = 0.0
+	card_round_ticket += 1
 	phase = "story"
 	next_phase = ""
 	story_lines.clear()
@@ -355,12 +508,19 @@ func reset_all() -> void:
 
 
 func show_story(lines: Array[String], destination: String) -> void:
+	rhythm_music.stop()
+	boss_card_room.stop_game()
+	hide_combat_ui()
+	reload_hint.visible = false
+	roll_label.visible = false
+	for button in card_buttons: button.visible = false
 	phase = "story"
 	next_phase = destination
 	story_lines = lines
 	story_index = 0
 	story_panel.visible = true
 	phase_label.text = "STORY"
+	status_label.text = ""
 	help_label.text = "SPACE 또는 화면 클릭으로 대화를 진행하세요"
 	show_current_story_line()
 	queue_redraw()
@@ -372,11 +532,47 @@ func show_current_story_line() -> void:
 		start_named_phase(next_phase)
 		return
 	var parts := story_lines[story_index].split("|", true, 1)
-	speaker_label.text = parts[0]
+	var speaker := parts[0]
+	speaker_label.text = "이상민" if speaker in ["보스", "상대", "동아리장"] else speaker
 	dialogue_label.text = parts[1] if parts.size() > 1 else ""
+	dialogue_label.visible_characters = 0
+	story_char_timer = 0.0
+	continue_label.text = "SPACE / 클릭 · 전체 문장 보기"
+	var portrait := AtlasTexture.new()
+	if speaker == "나" or speaker in ["보스", "상대", "동아리장", "이상민"]:
+		portrait.atlas = HERO_TEXTURE if speaker == "나" else CLUB_LEADER_IDLE_TEXTURE
+		portrait.region = Rect2(0, 0, portrait.atlas.get_width() / 4.0, portrait.atlas.get_height())
+		story_portrait.texture = portrait
+		story_portrait.visible = true
+	else:
+		# Dealer/narrator lines must not borrow the boss's face.
+		story_portrait.texture = null
+		story_portrait.visible = false
+	if story_tween != null and story_tween.is_valid(): story_tween.kill()
+	story_panel.position.y = 342
+	story_panel.modulate.a = 0.0
+	story_tween = create_tween().set_parallel(true)
+	story_tween.tween_property(story_panel, "position:y", 330.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	story_tween.tween_property(story_panel, "modulate:a", 1.0, 0.18)
+
+
+func update_story_text(delta: float) -> void:
+	if dialogue_label.visible_characters < 0: return
+	story_char_timer -= delta
+	while story_char_timer <= 0.0 and dialogue_label.visible_characters < dialogue_label.text.length():
+		var index := dialogue_label.visible_characters
+		dialogue_label.visible_characters += 1
+		story_char_timer += 0.065
+		if dialogue_label.text[index] in [".", "?", "!", ",", "…"]: story_char_timer += 0.22
+	if dialogue_label.visible_characters >= dialogue_label.text.length():
+		continue_label.text = "SPACE / 클릭 · 다음 대화  ▾"
 
 
 func advance_story() -> void:
+	if dialogue_label.visible_characters >= 0 and dialogue_label.visible_characters < dialogue_label.text.length():
+		dialogue_label.visible_characters = -1
+		continue_label.text = "SPACE / 클릭 · 다음 대화  ▾"
+		return
 	story_index += 1
 	show_current_story_line()
 
@@ -386,31 +582,90 @@ func start_named_phase(destination: String) -> void:
 		"card": start_card_phase()
 		"chase": start_chase_phase()
 		"rhythm": start_rhythm_phase()
+		"rhythm_play": begin_boss_rhythm()
 		"rogue": start_rogue_phase()
 		"shooter": start_shooter_phase()
 		"ending": start_ending()
 
 
 func start_card_phase() -> void:
+	hide_combat_ui()
+	story_panel.visible = false
 	phase = "card"
 	phase_label.text = "PHASE 1 / 5 · JOKER DRAW"
-	status_label.text = "보스의 카드에서 한 장을 선택하세요"
-	help_label.text = "카드를 클릭해 마지막 짝을 완성하세요"
-	for button in card_buttons:
-		button.visible = true
-		button.disabled = false
-		button.text = "◆\n?\n◆"
+	for button in card_buttons: button.visible = false
+	boss_card_room.start_game()
 	queue_redraw()
 
 
-func select_boss_card(index: int) -> void:
+func _on_boss_card_won() -> void:
 	if phase != "card": return
-	phase = "card_result"
+	show_story([
+		"이상민|말도 안 돼… 내 손에 조커만 남았잖아!",
+		"나|내가 이겼네. 약속한 판돈 줘.",
+		"이상민|잠깐만! 밖에서 가져올 테니까 기다려!",
+		"나|돈 들고 도망가네? 거기 서!"
+	], "chase")
+
+
+func refresh_boss_cards() -> void:
+	var count := boss_card_deck.size()
+	var start_x := (960.0 - float(count) * 84.0 - float(count - 1) * 12.0) * 0.5
 	for i in card_buttons.size():
-		card_buttons[i].disabled = true
-		card_buttons[i].text = "K" if i == index else "◆\n◆"
-	status_label.text = "짝 완성! 보스의 손에는 조커만 남았다"
-	await get_tree().create_timer(1.15).timeout
+		var button := card_buttons[i]
+		button.visible = i < count
+		button.position = Vector2(start_x + i * 96, 225)
+		button.scale = Vector2.ONE
+		button.disabled = false
+		button.text = ""
+		style_boss_card_back(button)
+	status_label.text = "맞춘 짝 %d / 6 · 상대 카드 %d장" % [boss_card_pairs.size(), count]
+	help_label.text = "같은 숫자는 짝으로 내려놓습니다 · 조커가 남는 쪽이 패배!"
+
+
+func style_boss_card_back(button: Button) -> void:
+	button.icon = null
+	var back := StyleBoxTexture.new()
+	back.texture = CARD_BACK_ART
+	button.add_theme_stylebox_override("normal", back)
+	button.add_theme_stylebox_override("disabled", back)
+	var hover := back.duplicate() as StyleBoxTexture
+	hover.modulate_color = Color("#fff3d8")
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", hover)
+
+
+func select_boss_card(index: int) -> void:
+	if phase != "card" or index >= boss_card_deck.size(): return
+	phase = "card_result"
+	var ticket := card_round_ticket
+	var rank := boss_card_deck[index]
+	for button in card_buttons: button.disabled = true
+	var selected := card_buttons[index]
+	selected.text = "JOKER" if rank == "JOKER" else rank + " ♠"
+	var face := StyleBoxFlat.new()
+	face.bg_color = Color("#f1ecd9")
+	face.set_corner_radius_all(7)
+	selected.add_theme_stylebox_override("disabled", face)
+	selected.add_theme_color_override("font_disabled_color", Color("#26322f"))
+	var lift := selected.create_tween().set_parallel(true)
+	lift.tween_property(selected, "position:y", 207.0, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	lift.tween_property(selected, "scale", Vector2(1.04, 1.04), 0.2)
+	Sfx.play("card_draw", -5)
+	status_label.text = "조커! 상대가 내 손에서 다시 뽑아 갔다…" if rank == "JOKER" else rank + " 짝 완성!"
+	await get_tree().create_timer(0.8, false).timeout
+	if ticket != card_round_ticket or phase != "card_result": return
+	if rank != "JOKER":
+		boss_card_pairs.append(rank)
+		boss_card_deck.remove_at(index)
+		Sfx.play("card_pair", -4)
+	else:
+		boss_card_deck.shuffle()
+	if boss_card_deck.size() > 1:
+		phase = "card"
+		refresh_boss_cards()
+		queue_redraw()
+		return
 	for button in card_buttons: button.visible = false
 	show_story([
 		"상대|말도 안 돼... 내가 조커를 들고 있다니!",
@@ -421,6 +676,9 @@ func select_boss_card(index: int) -> void:
 
 
 func start_chase_phase() -> void:
+	rhythm_music.stop()
+	boss_card_room.stop_game()
+	story_panel.visible = false
 	phase = "chase"
 	chase_time = 0.0
 	chase_player_pos = Vector2(70, GROUND_Y - 46.0)
@@ -430,6 +688,7 @@ func start_chase_phase() -> void:
 	chase_hp = 3
 	chase_invincible = 0.0
 	chase_reached_boss = false
+	chase_particles.clear()
 	chase_surfaces = [
 		Rect2(0, 430, 610, 110), Rect2(735, 430, 545, 110),
 		Rect2(1410, 430, 590, 110), Rect2(2120, 430, 680, 110),
@@ -439,6 +698,9 @@ func start_chase_phase() -> void:
 		Rect2(1810, 250, 155, 20), Rect2(2040, 345, 150, 20),
 		Rect2(2310, 300, 160, 20)
 	]
+	for i in chase_surfaces.size():
+		if chase_surfaces[i].size.y == 20.0:
+			chase_surfaces[i] = Rect2(chase_surfaces[i].position, Vector2(chase_surfaces[i].size.x, 32))
 	chase_hazards = [Rect2(890, 405, 80, 25), Rect2(1510, 405, 95, 25), Rect2(2240, 405, 90, 25)]
 	chase_enemies = [
 		{"pos": Vector2(1020, 400), "left": 990.0, "right": 1190.0, "dir": 1.0},
@@ -451,6 +713,13 @@ func start_chase_phase() -> void:
 
 
 func start_rhythm_phase() -> void:
+	show_story(["안내|불은 Q, 얼음은 W, 번개는 E! 공격이 원에 닿는 순간 해당 키를 누르세요.","안내|색뿐 아니라 공격 위의 Q/W/E 글자를 확인하세요. SPACE나 마우스로는 피할 수 없습니다. 실수 5번이면 재도전합니다. 준비되면 다음으로 진행하세요."],"rhythm_play")
+	phase_label.text = "RHYTHM · 조작 안내"
+
+
+func begin_boss_rhythm() -> void:
+	hide_combat_ui()
+	story_panel.visible = false
 	phase = "rhythm"
 	rhythm_time = 0.0
 	rhythm_spawn_timer = 0.6
@@ -459,12 +728,19 @@ func start_rhythm_phase() -> void:
 	rhythm_hp = 5
 	rhythm_combo = 0
 	rhythm_attacks.clear()
+	rhythm_impact = 0.0
+	rhythm_miss_flash = 0.0
+	rhythm_jolt = 0.0
+	rhythm_feedback = "불 Q · 얼음 W · 번개 E"
+	rhythm_feedback_left = 2.0
+	rhythm_music.play()
 	phase_label.text = "PHASE 3 / 5 · RHYTHM DODGE"
-	help_label.text = "공격이 판정선에 닿을 때 SPACE · 박자에 맞춰 회피하세요"
+	help_label.text = "불 Q · 얼음 W · 번개 E · 공격이 원에 닿을 때 해당 키!"
 	queue_redraw()
 
 
 func start_rogue_phase() -> void:
+	rhythm_music.stop()
 	phase = "rogue"
 	skill_levels = inherited_skill_levels.duplicate(true)
 	phase_label.text = "PHASE 4 / 5 · MINION SURVIVAL"
@@ -487,11 +763,15 @@ func _on_boss_gauntlet_won() -> void:
 
 func _physics_process(delta: float) -> void:
 	if not visible or skill_overlay.visible: return
+	update_chase_particles(delta)
 	match phase:
+		"story": update_story_text(delta)
 		"chase": update_chase(delta)
 		"rhythm": update_rhythm(delta)
 		"rogue": pass # 실제 4번 방 인스턴스가 자체적으로 갱신한다.
 		"shooter": update_shooter(delta)
+		"defeated": update_boss_defeat(delta)
+		"ending": update_ending(delta)
 	queue_redraw()
 
 
@@ -501,11 +781,20 @@ func update_chase(delta: float) -> void:
 	var direction := Input.get_axis("ui_left", "ui_right")
 	if Input.is_key_pressed(KEY_A): direction = -1.0
 	elif Input.is_key_pressed(KEY_D): direction = 1.0
+	if direction != 0.0: chase_last_direction = direction
+	var old_rect := Rect2(chase_player_pos, Vector2(42, 46))
 	chase_player_pos.x = clampf(chase_player_pos.x + direction * CHASE_MOVE_SPEED * delta, 0.0, CHASE_WORLD_WIDTH - 42.0)
+	for surface in chase_surfaces:
+		if old_rect.end.y > surface.position.y + 2.0 and old_rect.position.y < surface.end.y - 2.0:
+			if direction > 0.0 and old_rect.end.x <= surface.position.x and chase_player_pos.x + 42 > surface.position.x:
+				chase_player_pos.x = surface.position.x - 42
+			elif direction < 0.0 and old_rect.position.x >= surface.end.x and chase_player_pos.x < surface.end.x:
+				chase_player_pos.x = surface.end.x
 	var old_bottom := chase_player_pos.y + 46.0
 	chase_velocity_y += GRAVITY_2D * delta
 	chase_player_pos.y += chase_velocity_y * delta
 	var new_bottom := chase_player_pos.y + 46.0
+	var was_on_floor := chase_on_floor
 	chase_on_floor = false
 	var landing_y := INF
 	if chase_velocity_y >= 0.0:
@@ -517,6 +806,14 @@ func update_chase(delta: float) -> void:
 		chase_player_pos.y = landing_y - 46.0
 		chase_velocity_y = 0.0
 		chase_on_floor = true
+		if not was_on_floor: spawn_chase_particles(chase_player_pos + Vector2(21, 46), Color("#e0d8c2"), 10)
+	elif chase_velocity_y < 0.0:
+		for surface in chase_surfaces:
+			if chase_player_pos.x + 38 > surface.position.x and chase_player_pos.x + 4 < surface.end.x and old_rect.position.y >= surface.end.y - 1 and chase_player_pos.y <= surface.end.y:
+				chase_player_pos.y = surface.end.y
+				chase_velocity_y = 0.0
+	if chase_on_floor and direction != 0.0 and fmod(chase_time, 0.14) < delta:
+		spawn_chase_particles(chase_player_pos + Vector2(21, 46), Color("#c9bca4"), 2)
 	var player_rect := Rect2(chase_player_pos, Vector2(42, 46))
 	for hazard in chase_hazards:
 		if player_rect.intersects(hazard):
@@ -530,6 +827,7 @@ func update_chase(delta: float) -> void:
 		if player_rect.intersects(enemy_rect) and chase_invincible <= 0.0:
 			if chase_velocity_y > 100.0 and player_rect.end.y <= enemy_rect.position.y + 18.0:
 				enemy.dead = true
+				spawn_chase_particles(enemy.pos - Vector2(0, 12), Color("#8db9a3"), 16)
 				chase_velocity_y = -360.0
 			else:
 				reset_chase_player("순찰 몬스터와 부딪혔습니다")
@@ -561,51 +859,93 @@ func reset_chase_player(reason: String) -> void:
 	status_label.text = reason + " · 출발점으로 돌아갑니다"
 
 
+func spawn_chase_particles(at: Vector2, tint: Color, count: int) -> void:
+	for i in count:
+		chase_particles.append({"pos": at, "velocity": Vector2(randf_range(-65, 65), randf_range(-100, -25)), "life": 0.45, "color": tint})
+
+
+func update_chase_particles(delta: float) -> void:
+	for particle in chase_particles:
+		particle.life = float(particle.life) - delta
+		particle.pos += particle.velocity * delta
+		particle.velocity.y += 200.0 * delta
+	chase_particles = chase_particles.filter(func(p: Dictionary) -> bool: return float(p.life) > 0.0)
+
+
 func update_rhythm(delta: float) -> void:
-	rhythm_time += delta
-	rhythm_spawn_timer -= delta
-	if rhythm_spawned < 16 and rhythm_spawn_timer <= 0.0:
-		rhythm_spawn_timer = 0.72
+	# One audio clock drives both visible travel and judgement, including audio latency.
+	if rhythm_music.playing:
+		rhythm_time = maxf(0.0, rhythm_music.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency())
+	rhythm_feedback_left = maxf(0.0, rhythm_feedback_left - delta)
+	rhythm_impact = move_toward(rhythm_impact, 0.0, delta * 5.0)
+	rhythm_miss_flash = move_toward(rhythm_miss_flash, 0.0, delta * 2.5)
+	rhythm_jolt = move_toward(rhythm_jolt, 0.0, delta * 5.0)
+	while rhythm_spawned < BOSS_RHYTHM_BEATS.size() and rhythm_time >= float(BOSS_RHYTHM_BEATS[rhythm_spawned]) * BOSS_BEAT - 1.5:
+		var impact_time := float(BOSS_RHYTHM_BEATS[rhythm_spawned]) * BOSS_BEAT
+		var origin_y: float = [160.0,300.0,430.0].pick_random()
+		rhythm_attacks.append({"x": 850.0, "y": origin_y, "origin_y": origin_y, "time": impact_time, "type": randi_range(0,2), "resolved": false})
 		rhythm_spawned += 1
-		var attack_type := rhythm_spawned % 3
-		rhythm_attacks.append({"x": 850.0, "type": attack_type, "resolved": false})
 	for attack in rhythm_attacks:
-		attack.x = float(attack.x) - 420.0 * delta
-		if not attack.resolved and float(attack.x) < 135.0:
+		attack.x = 165.0 + (float(attack.time) - rhythm_time) * (685.0 / 1.5)
+		var progress := 1.0 - (float(attack.time) - rhythm_time) / 1.5
+		attack.y = lerpf(float(attack.origin_y), 300.0, progress)
+		if not attack.resolved and rhythm_time - float(attack.time) > 0.14:
 			attack.resolved = true
 			rhythm_resolved += 1
 			rhythm_hp -= 1
 			rhythm_combo = 0
-			status_label.text = "MISS · 박자를 놓쳤습니다"
+			rhythm_feedback = "MISS · 다음 북소리에 집중!"
+			rhythm_feedback_left = 0.65
+			rhythm_miss_flash = 1.0
+			rhythm_jolt = 1.0
+			Sfx.play("hit", -6, 0.55, 0.02)
+			spawn_chase_particles(Vector2(165,300), Color("#ff5252"), 24)
 	rhythm_attacks = rhythm_attacks.filter(func(item: Dictionary) -> bool: return float(item.x) > 75.0)
 	if rhythm_hp <= 0:
-		rhythm_hp = 5
-		rhythm_combo = 0
-		status_label.text = "리듬 보호막 재충전 · 다시 집중!"
-	if rhythm_resolved >= 16 and rhythm_attacks.is_empty():
+		show_story(["안내|보호막이 깨졌습니다. 불 Q · 얼음 W · 번개 E를 확인하고 다시 도전하세요."],"rhythm_play")
+		return
+	if rhythm_resolved >= BOSS_RHYTHM_BEATS.size() and rhythm_time > float(BOSS_RHYTHM_BEATS[-1]) * BOSS_BEAT + 1.0:
 		show_story([
 			"보스|내 공격을 전부 피했다고? 얘들아, 전부 나와!",
 			"나|부하가 아무리 많아도 내 스킬이면 충분해."
 		], "rogue")
 	else:
-		status_label.text = "HP %d / 5   ·   COMBO %d   ·   %d / 16" % [rhythm_hp, rhythm_combo, rhythm_resolved]
+		status_label.text = rhythm_feedback if rhythm_feedback_left > 0.0 else "HP %d / 5   ·   COMBO %d   ·   %d / %d" % [rhythm_hp, rhythm_combo, rhythm_resolved, BOSS_RHYTHM_BEATS.size()]
 
 
-func rhythm_dodge() -> void:
+func rhythm_dodge(input_type: int = -1) -> void:
 	if phase != "rhythm": return
+	if rhythm_music.playing:
+		rhythm_time = maxf(0.0, rhythm_music.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency())
 	var best: Dictionary = {}
 	var best_distance := 9999.0
 	for attack in rhythm_attacks:
 		if attack.resolved: continue
-		var distance := absf(float(attack.x) - 165.0)
-		if distance < best_distance:
-			best_distance = distance
-			best = attack
-	if not best.is_empty() and best_distance <= 82.0:
+		# Judge the earliest unresolved note so a double tap cannot skip its first hit.
+		best = attack
+		best_distance = absf(float(attack.time) - rhythm_time)
+		break
+	if not best.is_empty() and best_distance <= 0.14:
+		if input_type != int(best.type):
+			best.resolved = true
+			rhythm_resolved += 1
+			rhythm_hp -= 1
+			rhythm_combo = 0
+			rhythm_miss_flash = 1.0
+			rhythm_feedback = "잘못된 키! · 불 Q / 얼음 W / 번개 E"
+			rhythm_feedback_left = 0.65
+			Sfx.play("hit",-6,0.55)
+			return
 		best.resolved = true
 		rhythm_resolved += 1
 		rhythm_combo += 1
-		status_label.text = "PERFECT! · COMBO %d" % rhythm_combo
+		rhythm_feedback = ("PERFECT!" if best_distance <= 0.075 else "GOOD!") + " · COMBO %d" % rhythm_combo
+		rhythm_feedback_left = 0.5
+		Sfx.play("ui_confirm", -9, 0.9, 0.02)
+		Sfx.play("hit", -13, 1.2, 0.02)
+		rhythm_impact = 1.0
+		rhythm_jolt = 0.35
+		spawn_chase_particles(Vector2(165, 300), Color("#e7d6ac"), 24)
 
 
 func update_rogue(delta: float) -> void:
@@ -689,9 +1029,14 @@ func select_skill(index: int) -> void:
 
 
 func start_shooter_phase() -> void:
+	rhythm_music.stop()
+	roll_time_left = 0.0
+	roll_cooldown = 0.0
+	roll_label.visible = true
+	for button in card_buttons: button.visible = false
 	phase = "shooter"
 	phase_label.text = "PHASE 5 / 5 · 3D FINAL DUEL"
-	help_label.text = "WASD 이동 · 클릭 연사 · R 재장전 · SPACE 점프 · C/CTRL 웅크리기"
+	help_label.text = "WASD 이동 · 클릭 연사 · SHIFT 구르기 · R 재장전 · SPACE 점프 · C 웅크리기"
 	status_label.text = "5번 방 방식 그대로 이동하고 사격해 강화된 보스를 쓰러뜨리세요"
 	story_panel.visible = false
 	build_boss_arena()
@@ -705,6 +1050,10 @@ func start_shooter_phase() -> void:
 	gun_sound_timer = 0.0
 	boss_attack_timer = 1.8
 	slow_timer = 0.0
+	freeze_timer = 0.0
+	blind_timer = 0.0
+	blind_overlay.modulate.a = 0.0
+	clear_burning_zones()
 	yaw = 0.0
 	pitch = 0.0
 	boss_bar.max_value = FINAL_BOSS_MAX_HEALTH
@@ -716,11 +1065,29 @@ func start_shooter_phase() -> void:
 	damage_flash.color.a = 0.0
 	damage_indicator.modulate.a = 0.0
 	update_shooter_hud()
+	combat_render_ready = false
+	call_deferred("warm_up_spell_effects")
+
+
+func warm_up_spell_effects() -> void:
+	if phase != "shooter" or not is_instance_valid(world_3d): return
+	var warmup := Node3D.new()
+	warmup.position = Vector3(0, -30, -4)
+	world_3d.add_child(warmup)
+	spawn_vfx_particles(warmup, Color("#ffb09f"), 4, 0.2)
+	spawn_fire_volume_particles(warmup, 4, 0.2)
+	for child in warmup.get_children():
+		if child is GPUParticles3D:
+			child.visibility_aabb = AABB(Vector3(-64, -64, -64), Vector3(128, 128, 128))
+	for i in 4: await get_tree().process_frame
+	if is_instance_valid(warmup): warmup.queue_free()
+	combat_render_ready = true
 
 
 func build_boss_arena() -> void:
 	game_viewport = SubViewport.new()
 	game_viewport.size = Vector2i(960, 540)
+	game_viewport.msaa_3d = Viewport.MSAA_4X
 	game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	game_viewport.handle_input_locally = false
 	add_child(game_viewport)
@@ -739,9 +1106,9 @@ func build_boss_arena() -> void:
 	var environment := WorldEnvironment.new()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("#130c28")
+	env.background_color = Color("#111923")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("#c4b5fd")
+	env.ambient_light_color = Color("#c6c9c4")
 	env.ambient_light_energy = 0.62
 	environment.environment = env
 	world_3d.add_child(environment)
@@ -750,13 +1117,13 @@ func build_boss_arena() -> void:
 	sun.light_energy = 1.2
 	sun.shadow_enabled = true
 	world_3d.add_child(sun)
-	create_3d_box(Vector3(0, -0.35, -3), Vector3(24, 0.7, 30), Color("#201a35"), true)
-	create_3d_box(Vector3(0, 2.5, -18), Vector3(24, 5, 0.8), Color("#372554"), true)
-	create_3d_box(Vector3(-12, 2.5, -3), Vector3(0.8, 5, 30), Color("#2e2148"), true)
-	create_3d_box(Vector3(12, 2.5, -3), Vector3(0.8, 5, 30), Color("#2e2148"), true)
-	create_3d_box(Vector3(0, 2.5, 12), Vector3(24, 5, 0.8), Color("#251b3d"), true)
+	create_3d_box(Vector3(0, -0.35, -3), Vector3(24, 0.7, 30), Color("#354044"), true)
+	create_3d_box(Vector3(0, 2.5, -18), Vector3(24, 5, 0.8), Color("#4a5052"), true)
+	create_3d_box(Vector3(-12, 2.5, -3), Vector3(0.8, 5, 30), Color("#41494c"), true)
+	create_3d_box(Vector3(12, 2.5, -3), Vector3(0.8, 5, 30), Color("#41494c"), true)
+	create_3d_box(Vector3(0, 2.5, 12), Vector3(24, 5, 0.8), Color("#353d41"), true)
 	for x in [-8.0, -4.0, 0.0, 4.0, 8.0]:
-		create_3d_box(Vector3(x, 0.02, -3), Vector3(0.035, 0.03, 28), Color("#7c3aed"), false)
+		create_3d_box(Vector3(x, 0.02, -3), Vector3(0.035, 0.03, 28), Color("#73796c"), false)
 	build_fps_player()
 	build_club_leader_boss_3d()
 
@@ -820,9 +1187,10 @@ func build_club_leader_boss_3d() -> void:
 	boss_visual = Node3D.new()
 	boss_body.add_child(boss_visual)
 	var imported_model := CLUB_LEADER_3D_SCENE.instantiate() as Node3D
-	imported_model.name = "ClubLeaderBossRealisticModel"
+	imported_model.name = "ClubLeaderBossRebuiltModel"
 	imported_model.scale = Vector3.ONE * 3.05
 	boss_visual.add_child(imported_model)
+	configure_boss_skin(imported_model)
 	boss_skeleton = find_skeleton_3d(imported_model)
 	if is_instance_valid(boss_skeleton):
 		boss_head_bone = boss_skeleton.find_bone("head")
@@ -837,6 +1205,16 @@ func build_club_leader_boss_3d() -> void:
 				boss_rest_poses[bone_name] = boss_skeleton.get_bone_pose_rotation(bone_index)
 	boss_stride = 0.0
 	boss_walk_blend = 0.0
+	boss_turning = false
+	boss_animation_player = find_boss_animation_player(imported_model)
+	boss_motion_clips.clear()
+	if is_instance_valid(boss_animation_player):
+		for clip in ["Idle","Walk","StrafeLeft","StrafeRight","Cast","Dash"]:
+			for animation_name in boss_animation_player.get_animation_list():
+				if String(animation_name).contains("Boss_" + clip):
+					boss_motion_clips[clip] = animation_name
+					boss_animation_player.get_animation(animation_name).loop_mode = Animation.LOOP_LINEAR if clip in ["Idle","Walk","StrafeLeft","StrafeRight"] else Animation.LOOP_NONE
+		play_boss_motion("Idle",0.0)
 	# 기존 시전 코드와 호환되는 제어용 피벗. 실제 팔/머리는 Skeleton3D가 움직인다.
 	boss_spine = Node3D.new()
 	boss_visual.add_child(boss_spine)
@@ -860,8 +1238,8 @@ func build_club_leader_boss_3d() -> void:
 	boss_visual.add_child(boss_right_knee)
 	boss_aura = OmniLight3D.new()
 	boss_aura.position = Vector3(0, 3.0, 0.5)
-	boss_aura.light_color = Color("#a855f7")
-	boss_aura.light_energy = 0.55
+	boss_aura.light_color = Color("#bbc5d8")
+	boss_aura.light_energy = 0.18
 	boss_aura.omni_range = 8.0
 	boss_visual.add_child(boss_aura)
 	var collision := CollisionShape3D.new()
@@ -870,6 +1248,51 @@ func build_club_leader_boss_3d() -> void:
 	collision.shape = shape
 	collision.position.y = 2.5
 	boss_body.add_child(collision)
+
+
+func find_boss_animation_player(node: Node) -> AnimationPlayer:
+	if node is AnimationPlayer: return node
+	for child in node.get_children():
+		var found := find_boss_animation_player(child)
+		if found != null: return found
+	return null
+
+
+func play_boss_motion(kind: String, blend := 0.18) -> void:
+	if phase != "shooter": return
+	if not is_instance_valid(boss_animation_player) or not boss_motion_clips.has(kind): return
+	var clip: StringName = boss_motion_clips[kind]
+	if boss_animation_player.current_animation == clip and boss_animation_player.is_playing(): return
+	boss_animation_player.speed_scale = 1.0
+	boss_animation_player.play(clip,blend)
+
+
+func boss_motion_locked() -> bool:
+	return is_instance_valid(boss_animation_player) and boss_animation_player.is_playing() and boss_animation_player.current_animation in [boss_motion_clips.get("Cast",""),boss_motion_clips.get("Dash","")]
+
+
+func update_boss_motion(velocity: Vector3) -> void:
+	if phase != "shooter": return
+	if boss_motion_locked(): return
+	var speed := Vector2(velocity.x,velocity.z).length()
+	if speed < 0.2:
+		play_boss_motion("Idle")
+		boss_animation_player.speed_scale = 1.0
+	else:
+		play_boss_motion("Walk")
+		boss_animation_player.speed_scale = clampf(speed/BOSS_CAPTURED_WALK_SPEED,0.35,1.8)
+
+
+func configure_boss_skin(node: Node) -> void:
+	if node is MeshInstance3D:
+		for index in node.mesh.get_surface_count():
+			var source := node.mesh.surface_get_material(index) as StandardMaterial3D
+			if source != null and source.resource_name == "Boss_Skin_PBR":
+				var skin := source.duplicate() as StandardMaterial3D
+				# The GLB contains complexion COLOR_0; Godot does not enable it automatically.
+				skin.vertex_color_use_as_albedo = true
+				node.set_surface_override_material(index,skin)
+	for child in node.get_children(): configure_boss_skin(child)
 
 
 func find_skeleton_3d(node: Node) -> Skeleton3D:
@@ -887,6 +1310,11 @@ func update_shooter(delta: float) -> void:
 	shot_timer = maxf(0.0, shot_timer - delta)
 	gun_sound_timer = maxf(0.0, gun_sound_timer - delta)
 	slow_timer = maxf(0.0, slow_timer - delta)
+	freeze_timer = maxf(0.0, freeze_timer - delta)
+	blind_timer = maxf(0.0, blind_timer - delta)
+	blind_overlay.modulate.a = minf(1.0, blind_timer / 0.55)
+	roll_cooldown = maxf(0.0, roll_cooldown - delta)
+	roll_time_left = maxf(0.0, roll_time_left - delta)
 	if reload_timer > 0.0:
 		reload_timer -= delta
 		reload_bar.value = 1.35 - maxf(0.0, reload_timer)
@@ -896,16 +1324,32 @@ func update_shooter(delta: float) -> void:
 			reserve_ammo -= loaded
 			fps_gun.position = Vector3(0.48, -0.37, -0.82)
 			reload_bar.visible = false
+	reload_hint.visible = reload_timer > 0.0
+	if reload_hint.visible: reload_hint.text = "재장전 · %.1f초" % reload_timer
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): shoot_boss()
+	# A killing shot changes phase inside shoot_boss. Do not restart walking below.
+	if phase != "shooter": return
 	var input_vector := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	if Input.is_key_pressed(KEY_A): input_vector.x = -1
 	if Input.is_key_pressed(KEY_D): input_vector.x = 1
 	if Input.is_key_pressed(KEY_W): input_vector.y = -1
 	if Input.is_key_pressed(KEY_S): input_vector.y = 1
 	fps_is_crouching = Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_C)
-	fps_camera.position.y = move_toward(fps_camera.position.y, 0.20 if fps_is_crouching else 0.62, delta * 2.8)
-	fps_player_capsule.height = 1.12 if fps_is_crouching else 1.8
-	fps_player_collision.position.y = -0.34 if fps_is_crouching else 0.0
+	var rolling := roll_time_left > 0.0
+	var roll_progress := 1.0 - roll_time_left / ROLL_DURATION if rolling else 0.0
+	var roll_curve := sin(roll_progress * PI) if rolling else 0.0
+	var camera_height := 0.62 - roll_curve * 0.48 if rolling else (0.20 if fps_is_crouching else 0.62)
+	fps_camera.position.y = move_toward(fps_camera.position.y, camera_height, delta * 5.5)
+	var bank := -signf(roll_local.x) * roll_curve * 0.55 if roll_kind == "side" else 0.0
+	fps_camera.rotation.z = lerpf(fps_camera.rotation.z, bank, minf(delta * 16, 1.0))
+	if rolling and roll_kind == "forward":
+		fps_camera.rotation.x = pitch - TAU * smoothstep(0.0,1.0,roll_progress)
+	elif rolling and roll_kind == "back":
+		fps_camera.rotation.x = pitch + roll_curve * 0.75
+	else:
+		fps_camera.rotation.x = pitch
+	fps_player_capsule.height = 1.0 if rolling else (1.12 if fps_is_crouching else 1.8)
+	fps_player_collision.position.y = -0.40 if rolling else (-0.34 if fps_is_crouching else 0.0)
 	var forward := -fps_player.global_transform.basis.z
 	var right := fps_player.global_transform.basis.x
 	forward.y = 0
@@ -914,12 +1358,21 @@ func update_shooter(delta: float) -> void:
 	var speed := SHOOTER_SPEED * (0.48 if fps_is_crouching else 1.0) * (0.55 if slow_timer > 0 else 1.0)
 	fps_player.velocity.x = movement.x * speed
 	fps_player.velocity.z = movement.z * speed
+	if rolling:
+		var roll_speed := roll_curve * 14.0
+		fps_player.velocity.x = roll_direction.x * roll_speed
+		fps_player.velocity.z = roll_direction.z * roll_speed
+	if freeze_timer > 0.0:
+		fps_player.velocity.x = 0
+		fps_player.velocity.z = 0
+	roll_label.text = "구르는 중 · 공격 회피" if rolling else ("SHIFT 구르기 · %.1f초" % roll_cooldown if roll_cooldown > 0 else "SHIFT 구르기 · 준비 완료")
+	if freeze_timer > 0: roll_label.text = "빙결 · %.1f초 후 이동 가능" % freeze_timer
 	if not fps_player.is_on_floor(): fps_player.velocity.y -= SHOOTER_GRAVITY * delta
 	elif fps_player.velocity.y < 0: fps_player.velocity.y = 0
 	fps_player.move_and_slide()
 	if not boss_casting:
 		boss_attack_timer -= delta
-	if boss_attack_timer <= 0.0 and not boss_casting:
+	if boss_attack_timer <= 0.0 and not boss_casting and combat_render_ready:
 		var health_ratio := float(boss_health) / float(FINAL_BOSS_MAX_HEALTH)
 		if health_ratio > 0.70:
 			boss_attack_timer = randf_range(2.45, 3.05)
@@ -929,6 +1382,7 @@ func update_shooter(delta: float) -> void:
 			boss_attack_timer = randf_range(1.55, 2.05)
 		cast_boss_spell()
 	update_arena_attacks(delta)
+	update_burning_zones(delta)
 	camera_shake = maxf(0.0, camera_shake - delta)
 	if camera_shake > 0.0:
 		fps_camera.h_offset = randf_range(-0.08, 0.08) * camera_shake * 4.0
@@ -938,14 +1392,25 @@ func update_shooter(delta: float) -> void:
 		fps_camera.v_offset = 0.0
 	boss_move_time += delta
 	var previous_boss_position := boss_body.position
-	if is_instance_valid(boss_body) and not boss_casting:
+	if is_instance_valid(boss_body) and not boss_casting and not boss_motion_locked():
 		var desired := Vector3(sin(boss_move_time * 0.72) * 7.5, 0.0, -13.0 + cos(boss_move_time * 0.48) * 2.2)
-		boss_body.position = boss_body.position.lerp(desired, minf(1.0, delta * 2.1))
-		boss_body.look_at(Vector3(fps_player.position.x, 0.0, fps_player.position.z), Vector3.UP, true)
+		var to_goal := desired-boss_body.position
+		var distance := Vector2(to_goal.x,to_goal.z).length()
+		if distance > 0.12:
+			var target_yaw := atan2(to_goal.x,to_goal.z)
+			var error := absf(angle_difference(boss_body.rotation.y,target_yaw))
+			if error > 0.55: boss_turning = true
+			if boss_turning and error < 0.10: boss_turning = false
+			boss_body.rotation.y = rotate_toward(boss_body.rotation.y,target_yaw,delta*2.8)
+			if not boss_turning:
+				boss_body.position += boss_body.global_basis.z * minf(distance,delta*2.8)
 	var travel := boss_body.position.distance_to(previous_boss_position)
 	boss_stride += travel * 2.8
 	boss_walk_blend = move_toward(boss_walk_blend, clampf(travel / maxf(delta, 0.001) / 3.5, 0.0, 1.0), delta * 5.0)
-	if is_instance_valid(boss_visual):
+	if is_instance_valid(boss_animation_player):
+		var local_velocity := boss_body.global_basis.inverse() * (boss_body.position-previous_boss_position) / maxf(delta,0.001)
+		update_boss_motion(local_velocity)
+	elif is_instance_valid(boss_visual):
 		var idle_time := Time.get_ticks_msec() * 0.001
 		var step := sin(idle_time * 4.5)
 		var breath := sin(idle_time * 1.7)
@@ -970,7 +1435,33 @@ func update_shooter(delta: float) -> void:
 	update_shooter_hud()
 
 
+func begin_roll(forced_direction := Vector3.ZERO, forced := false) -> void:
+	if phase != "shooter": return
+	if not forced and (roll_cooldown > 0.0 or freeze_timer > 0.0 or not fps_player.is_on_floor()): return
+	var input := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
+	if Input.is_key_pressed(KEY_A): input.x = -1
+	if Input.is_key_pressed(KEY_D): input.x = 1
+	if Input.is_key_pressed(KEY_W): input.y = -1
+	if Input.is_key_pressed(KEY_S): input.y = 1
+	if input.length_squared() < 0.01: input.y = -1
+	roll_local = input.normalized()
+	roll_kind = "forward" if input.y < -0.25 else ("back" if input.y > 0.25 else "side")
+	var forward := -fps_player.global_transform.basis.z
+	var right := fps_player.global_transform.basis.x
+	roll_direction = (right * input.x - forward * input.y).normalized()
+	roll_direction.y = 0
+	if forced:
+		roll_direction = forced_direction.normalized()
+		roll_direction.y = 0
+		roll_local = Vector2(0,1)
+		roll_kind = "back"
+	roll_time_left = ROLL_DURATION
+	roll_cooldown = ROLL_COOLDOWN
+	Sfx.play("boss_charge", -17, 1.3)
+
+
 func update_realistic_boss_skeleton(step: float, breath: float) -> void:
+	if is_instance_valid(boss_animation_player): return
 	if not is_instance_valid(boss_skeleton):
 		return
 	var cast_curve := sin(boss_cast_pose * PI)
@@ -1006,16 +1497,17 @@ func point_boss_arm(bone_name: String, direction: Vector3) -> void:
 
 
 func cast_boss_spell() -> void:
+	if phase != "shooter": return
 	boss_casting = true
 	var cast_lock_time := 0.62
-	if is_instance_valid(boss_visual):
+	if is_instance_valid(boss_visual) and not is_instance_valid(boss_animation_player):
 		# 주문마다 옆으로 미끄러지며 몸을 낮추고 힘을 모은다. 정지한 채 그림만
 		# 나타나는 느낌을 피하고, 예고 범위와 보스 동작을 한 흐름으로 연결한다.
 		var cast_tween := create_tween()
 		cast_tween.tween_property(boss_visual, "scale", Vector3(1.08, 0.88, 1.08), 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		cast_tween.tween_property(boss_visual, "scale", Vector3(0.94, 1.16, 0.94), 0.13).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		cast_tween.tween_property(boss_visual, "scale", Vector3.ONE, 0.25).set_trans(Tween.TRANS_SINE)
-	if is_instance_valid(boss_body):
+	if is_instance_valid(boss_body) and not is_instance_valid(boss_animation_player):
 		var strafe_target := clampf(boss_body.position.x + randf_range(-3.0, 3.0), -8.5, 8.5)
 		boss_body.create_tween().tween_property(boss_body, "position:x", strafe_target, 0.52).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var spell_roll := randf()
@@ -1058,12 +1550,26 @@ func cast_boss_spell() -> void:
 		var node := make_charge_lane(charge_start, charge_target, Color("#ff3b30cc"), 2.5)
 		arena_attacks.append({"kind": "charge", "time": 1.0, "start": charge_start, "pos": charge_target, "node": node})
 		cast_lock_time = BOSS_TELEGRAPH_TIME + 0.55
-	get_tree().create_timer(cast_lock_time).timeout.connect(func() -> void: boss_casting = false)
+	get_tree().create_timer(cast_lock_time, false).timeout.connect(func() -> void: boss_casting = false)
 
 
 func animate_boss_cast(kind: String) -> void:
+	if phase != "shooter": return
 	if not is_instance_valid(boss_left_arm) or not is_instance_valid(boss_right_arm): return
 	var color := Color("#38bdf8") if kind == "ice" else Color("#fb4b24") if kind == "fire" else Color("#ef4444") if kind == "charge" else Color("#fde047")
+	if is_instance_valid(boss_animation_player):
+		var toward_player := fps_player.position-boss_body.position
+		var target_yaw := lerp_angle(boss_body.rotation.y,atan2(toward_player.x,toward_player.z),1.0)
+		if boss_turn_tween != null and boss_turn_tween.is_valid(): boss_turn_tween.kill()
+		boss_turn_tween = boss_body.create_tween()
+		boss_turn_tween.tween_property(boss_body,"rotation:y",target_yaw,0.25).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		play_boss_motion("Dash" if kind == "charge" else "Cast",0.12)
+		boss_aura.light_color = color
+		if boss_glow_tween != null and boss_glow_tween.is_valid(): boss_glow_tween.kill()
+		boss_glow_tween = create_tween()
+		boss_glow_tween.tween_property(boss_aura,"light_energy",1.4,0.2)
+		boss_glow_tween.tween_property(boss_aura,"light_energy",0.18,0.65)
+		return
 	boss_aura.light_color = color
 	boss_aura.light_energy = 2.4
 	boss_cast_pose = 0.0
@@ -1095,25 +1601,78 @@ func update_arena_attacks(delta: float) -> void:
 			attack.done = true
 			spawn_spell_impact(str(attack.kind), attack.pos, attack.get("start", attack.pos))
 			if attack.kind == "fire" and Vector2(fps_player.position.x, fps_player.position.z).distance_to(Vector2(attack.pos.x, attack.pos.z)) < 1.75:
-				damage_fps_player(14, Color("#ff6b36"))
+				apply_spell_hit("fire",attack.get("start",attack.pos))
+			if attack.kind == "fire": spawn_burning_zone(attack.pos)
 			if attack.kind == "ice" and Vector2(fps_player.position.x, fps_player.position.z).distance_to(Vector2(attack.pos.x, attack.pos.z)) <= 7.5 and fps_player.position.y < 1.45:
-				damage_fps_player(18, Color("#67e8f9"))
-				slow_timer = 2.2
+				apply_spell_hit("ice",attack.pos)
 			if attack.kind == "lightning":
 				var player_2d := Vector2(fps_player.position.x, fps_player.position.z)
 				var start_2d := Vector2(attack.start.x, attack.start.z)
 				var end_2d := Vector2(attack.pos.x, attack.pos.z)
 				if distance_to_segment(player_2d, start_2d, end_2d) < 1.0:
-					damage_fps_player(22, Color("#fff38a"))
+					apply_spell_hit("lightning",attack.start)
 			if attack.kind == "charge":
 				perform_boss_charge(attack.start, attack.pos)
 				var player_2d := Vector2(fps_player.position.x, fps_player.position.z)
 				var start_2d := Vector2(attack.start.x, attack.start.z)
 				var end_2d := Vector2(attack.pos.x, attack.pos.z)
 				if distance_to_segment(player_2d, start_2d, end_2d) < 1.45:
-					damage_fps_player(26, Color("#ff3b30"))
+					apply_spell_hit("charge",attack.start)
 			if is_instance_valid(attack.node): attack.node.queue_free()
 	arena_attacks = arena_attacks.filter(func(item: Dictionary) -> bool: return not item.get("done", false))
+
+
+func apply_spell_hit(kind: String, source: Vector3) -> bool:
+	var damage: int = {"fire":14,"ice":18,"lightning":22,"charge":26}[kind]
+	var tint: Color = {"fire":Color("#ff6b36"),"ice":Color("#67e8f9"),"lightning":Color("#fff38a"),"charge":Color("#ff3b30")}[kind]
+	if not damage_fps_player(damage,tint): return false
+	if kind == "ice":
+		freeze_timer = 2.0
+		roll_time_left = 0
+		status_label.text = "빙결! 2초 동안 이동 불가"
+	elif kind == "lightning":
+		blind_timer = 1.0
+		blind_overlay.modulate.a = 1.0
+		status_label.text = "번개! 1초 동안 시야 차단"
+	elif kind == "charge":
+		freeze_timer = 0
+		var away := fps_player.position - source
+		away.y = 0
+		if away.length_squared() < 0.01: away = fps_player.global_transform.basis.z
+		begin_roll(away,true)
+		status_label.text = "돌진에 밀려 뒤로 굴렀습니다!"
+	return true
+
+
+func spawn_burning_zone(at: Vector3) -> void:
+	var node := Node3D.new()
+	node.position = at
+	world_3d.add_child(node)
+	spawn_fire_volume_particles(node,55,1.5)
+	for child in node.get_children():
+		if child is GPUParticles3D: child.one_shot = false
+	burning_zones.append({"node":node,"pos":at,"time":2.0})
+	burn_damage_cooldown = maxf(burn_damage_cooldown,0.4)
+
+
+func update_burning_zones(delta: float) -> void:
+	burn_damage_cooldown = maxf(0,burn_damage_cooldown-delta)
+	for zone in burning_zones:
+		zone.time = float(zone.time)-delta
+		if zone.time <= 0: continue
+		if burn_damage_cooldown <= 0 and fps_player.position.y < 1.65 and Vector2(fps_player.position.x,fps_player.position.z).distance_to(Vector2(zone.pos.x,zone.pos.z)) < 1.75:
+			if damage_fps_player(7,Color("#ff6b36")):
+				burn_damage_cooldown = 0.5
+				status_label.text = "바닥의 불에 닿았습니다! · -7 HP"
+	for zone in burning_zones:
+		if zone.time <= 0 and is_instance_valid(zone.node): zone.node.queue_free()
+	burning_zones = burning_zones.filter(func(z:Dictionary)->bool:return float(z.time)>0)
+
+
+func clear_burning_zones() -> void:
+	for zone in burning_zones:
+		if is_instance_valid(zone.node): zone.node.queue_free()
+	burning_zones.clear()
 
 
 func shoot_boss() -> void:
@@ -1123,16 +1682,14 @@ func shoot_boss() -> void:
 		return
 	shot_timer = 0.095
 	ammo -= 1
-	# 짧은 총성이 매 프레임 겹치면 '뚜두뚜두'처럼 들리므로 소리만 적당히 묶는다.
-	if gun_sound_timer <= 0.0:
-		Sfx.play_unique("gunshot", -7.5, 0.96, 0.035)
-		gun_sound_timer = 0.145
+	# A short, faded tail overlaps naturally; do not repeatedly cut a live sound.
+	Sfx.play("gunshot_auto", -10.0, 0.98, 0.015)
 	fps_muzzle.light_energy = 5.0
 	fps_muzzle_flash.visible = true
 	fps_muzzle_flash.rotation_degrees.z = randf_range(0.0, 180.0)
 	fps_muzzle_flash.scale = Vector3(0.45, 0.45, 0.75)
 	fps_muzzle_flash.create_tween().tween_property(fps_muzzle_flash, "scale", Vector3(1.15, 1.15, 1.55), 0.035)
-	get_tree().create_timer(0.045).timeout.connect(func() -> void:
+	get_tree().create_timer(0.045, false).timeout.connect(func() -> void:
 		if is_instance_valid(fps_muzzle): fps_muzzle.light_energy = 0.0
 		if is_instance_valid(fps_muzzle_flash): fps_muzzle_flash.visible = false
 	)
@@ -1143,11 +1700,12 @@ func shoot_boss() -> void:
 	var result := fps_camera.get_world_3d().direct_space_state.intersect_ray(query)
 	var bullet_end: Vector3 = result.position if not result.is_empty() else origin + -fps_camera.global_transform.basis.z * 55.0
 	spawn_player_bullet(fps_muzzle.global_position, bullet_end)
+	GUN_EFFECTS.casing(world_3d, fps_gun.global_position, fps_camera.global_transform.basis.x)
 	if not result.is_empty() and result.collider == boss_body:
 		Sfx.play("hit", -5.0, 0.84, 0.03)
 		boss_health -= 30
 		status_label.text = "보스 명중 · 30 DAMAGE"
-		if is_instance_valid(boss_visual):
+		if is_instance_valid(boss_visual) and not is_instance_valid(boss_animation_player):
 			var tween := create_tween()
 			tween.tween_property(boss_visual, "scale", Vector3(1.08, 0.94, 1.08), 0.04)
 			tween.tween_property(boss_visual, "scale", Vector3.ONE, 0.08)
@@ -1198,14 +1756,18 @@ func spawn_player_bullet(start: Vector3, target: Vector3) -> void:
 func begin_boss_reload() -> void:
 	if reload_timer > 0.0 or ammo == 30 or reserve_ammo <= 0: return
 	reload_timer = 1.35
-	Sfx.play("reload", -4.0, 0.84)
+	Sfx.play("reload", -9.0, 1.0)
 	reload_bar.value = 0.0
 	reload_bar.visible = true
 	fps_gun.position = Vector3(0.34, -0.9, -0.65)
 	status_label.text = "재장전 중..."
 
 
-func damage_fps_player(amount: int, hit_color: Color = Color("#ff453a")) -> void:
+func damage_fps_player(amount: int, hit_color: Color = Color("#ff453a")) -> bool:
+	var roll_elapsed := ROLL_DURATION - roll_time_left
+	if roll_time_left > 0.0 and roll_elapsed >= 0.07 and roll_elapsed <= 0.40:
+		status_label.text = "DODGE · 구르기로 회피!"
+		return false
 	fps_health -= amount
 	Sfx.play("player_hit", 0.0, 0.78, 0.05)
 	status_label.text = "보스의 공격에 맞았습니다 · -%d HP" % amount
@@ -1234,30 +1796,144 @@ func damage_fps_player(amount: int, hit_color: Color = Color("#ff453a")) -> void
 		fps_health = 100
 		fps_player.position = Vector3(0, 1.05, 8)
 		status_label.text = "다시 일어섰습니다 · 보스전 재개"
+	return true
 
 
 func defeat_final_boss() -> void:
-	phase = "story"
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if phase != "shooter": return
+	phase = "defeated"
+	defeat_elapsed = 0.0
+	defeat_pose_settled = false
+	for motion in [boss_dash_tween,boss_turn_tween,boss_recover_tween,boss_glow_tween]:
+		if motion != null and motion.is_valid(): motion.kill()
+	if is_instance_valid(boss_animation_player):
+		boss_animation_player.stop(true)
+		boss_animation_player.active = false
+	boss_turning = false
+	boss_aura.light_energy = 0
+	boss_casting = false
+	clear_burning_zones()
+	for attack in arena_attacks:
+		if is_instance_valid(attack.node): attack.node.queue_free()
+	arena_attacks.clear()
+	freeze_timer = 0
+	blind_timer = 0
+	blind_overlay.modulate.a = 0
+	roll_time_left = 0
+	fps_camera.rotation = Vector3(pitch,0,0)
+	boss_body.collision_layer = 0
+	status_label.text = "이상민을 쓰러뜨렸습니다"
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	boss_bar.visible = false
 	health_label.visible = false
 	ammo_label.visible = false
-	if is_instance_valid(viewport_texture): viewport_texture.visible = false
+	reload_bar.visible = false
+	reload_hint.visible = false
+	roll_label.visible = false
+	# Use the established rig: buckle the knees, lose balance, then settle on the floor.
+	boss_visual.scale = Vector3.ONE
+
+
+func update_boss_defeat(delta: float) -> void:
+	defeat_elapsed += delta
+	if not defeat_pose_settled:
+		var knees := smoothstep(0.0,0.65,defeat_elapsed)
+		var fall := smoothstep(0.45,1.4,defeat_elapsed)
+		pose_boss_bone("lowerleg01.L",Vector3(knees*0.9,0,0))
+		pose_boss_bone("lowerleg01.R",Vector3(knees*0.65,0,0))
+		pose_boss_bone("upperleg01.L",Vector3(-knees*0.55,0,0))
+		pose_boss_bone("upperleg01.R",Vector3(-knees*0.4,0,0))
+		pose_boss_bone("spine03",Vector3(knees*0.2,0,0))
+		pose_boss_bone("upperarm01.L",Vector3(-0.45*knees,0,-0.25*knees))
+		pose_boss_bone("upperarm01.R",Vector3(-0.3*knees,0,0.35*knees))
+		boss_visual.rotation.x = -fall * PI * 0.48
+		boss_visual.rotation.z = fall * 0.12
+		# Fit the posed body to the floor instead of lifting the rotated model by a constant.
+		boss_visual.position.y = 0.0
+		if is_instance_valid(boss_skeleton):
+			boss_skeleton.force_update_all_bone_transforms()
+			var lowest := INF
+			for contact in [["head",0.095],["spine03",0.13],["spine02",0.12],["pelvis",0.105],["upperleg01.L",0.09],["upperleg01.R",0.09],["lowerleg01.L",0.065],["lowerleg01.R",0.065],["foot.L",0.05],["foot.R",0.05]]:
+				var bone := boss_skeleton.find_bone(contact[0])
+				if bone < 0: continue
+				var at := boss_skeleton.to_global(boss_skeleton.get_bone_global_pose(bone).origin)
+				lowest = minf(lowest,at.y - float(contact[1])*3.05)
+			if lowest < INF: boss_visual.position.y = (0.025-lowest)*fall
+		if defeat_elapsed >= 1.4: defeat_pose_settled = true
+	update_defeated_player(delta)
+	if defeat_elapsed < 4.4: return # Fall for 1.4 seconds, hold the final pose for 3 seconds.
 	show_story([
 		"보스|카드도, 추격도, 공격도, 부하들도... 전부 졌다.",
-		"나|다섯 장르를 모두 지나온 경험이 내 무기였어.",
-		"보스|이번에는 인정하지. 네가 진짜 장르 마스터다!"
+		"나|판돈은 돌려받았고, 이제 도망도 끝이야.",
+		"딜러|신고를 받고 경찰이 도착했습니다. 함께 가시죠.",
+		"보스|잠깐… 조커 한 장 때문에 여기까지 온 거야?"
 	], "ending")
 
 
+func update_defeated_player(delta: float) -> void:
+	var movement := Input.get_vector("ui_left","ui_right","ui_up","ui_down")
+	if Input.is_key_pressed(KEY_A): movement.x = -1
+	if Input.is_key_pressed(KEY_D): movement.x = 1
+	if Input.is_key_pressed(KEY_W): movement.y = -1
+	if Input.is_key_pressed(KEY_S): movement.y = 1
+	var direction := fps_player.global_basis * Vector3(movement.x,0,movement.y).normalized()
+	fps_player.velocity.x = direction.x * SHOOTER_SPEED
+	fps_player.velocity.z = direction.z * SHOOTER_SPEED
+	if not fps_player.is_on_floor(): fps_player.velocity.y -= SHOOTER_GRAVITY*delta
+	elif fps_player.velocity.y < 0: fps_player.velocity.y = 0
+	fps_player.move_and_slide()
+	fps_camera.position.y = move_toward(fps_camera.position.y,0.62,delta*5.5)
+	fps_camera.rotation = Vector3(pitch,0,0)
+	fps_camera.h_offset = 0
+	fps_camera.v_offset = 0
+
+
 func start_ending() -> void:
+	rhythm_music.stop()
+	ending_music.play()
+	hide_combat_ui()
 	phase = "ending"
 	story_panel.visible = false
-	finish_button.visible = true
+	ending_time = 0.0
+	finish_button.visible = false
+	finish_button.position = Vector2(615, 470)
+	finish_button.text = "크레딧 건너뛰기 · 복도로"
+	finish_button.add_theme_font_size_override("font_size", 16)
+	credits_mask.visible = true
+	credits_label.position.y = credits_mask.size.y
+	credits_label.size.y = maxf(830, credits_label.get_minimum_size().y)
+	roll_label.visible = false
+	reload_hint.visible = false
+	if is_instance_valid(viewport_texture): viewport_texture.visible = false
+	title_label.text = "THE END"
 	phase_label.text = "FINAL CLEAR"
-	status_label.text = "다섯 장르의 힘으로 최종 보스를 쓰러뜨렸습니다"
+	status_label.text = "판돈 회수 완료 · 도망자 체포"
 	help_label.text = ""
 	queue_redraw()
+
+
+func hide_combat_ui() -> void:
+	if is_instance_valid(boss_card_room): boss_card_room.stop_game()
+	clear_burning_zones()
+	blind_overlay.modulate.a = 0
+	blind_timer = 0
+	freeze_timer = 0
+	for control in [boss_bar, health_label, ammo_label, reload_bar, reload_hint, roll_label]:
+		control.visible = false
+	damage_flash.color.a = 0.0
+	damage_indicator.modulate.a = 0.0
+	if is_instance_valid(viewport_texture): viewport_texture.visible = false
+
+
+func update_ending(delta: float) -> void:
+	var before := ending_time
+	ending_time += delta
+	if before < 2.8 and ending_time >= 2.8: Sfx.play("reload", -8, 0.95)
+	credits_label.position.y = credits_mask.size.y - maxf(0.0, ending_time - 3.5) * 48.0
+	finish_button.visible = ending_time > 6.0
+	if credits_label.position.y + credits_label.size.y < 0:
+		credits_label.position.y = -credits_label.size.y
+		finish_button.text = "감사합니다 · 복도로"
 
 
 func update_shooter_hud() -> void:
@@ -1283,17 +1959,19 @@ func skip_current_chapter() -> void:
 			show_story(["나|부하들을 돌파했다. 이제 마지막 결투다."], "shooter")
 		"shooter":
 			defeat_final_boss()
+		"defeated":
+			update_boss_defeat(4.4)
 		"ending":
 			finish_room()
 
 
 func _input(event: InputEvent) -> void:
-	if not visible: return
-	if event is InputEventMouseMotion and phase == "shooter" and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if not visible or get_tree().paused: return
+	if event is InputEventMouseMotion and phase in ["shooter","defeated"] and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		yaw -= event.relative.x * MOUSE_SENSITIVITY
 		pitch = clampf(pitch - event.relative.y * MOUSE_SENSITIVITY, -1.2, 1.2)
 		fps_player.rotation.y = yaw
-		fps_camera.rotation.x = pitch
+		if roll_time_left <= 0.0: fps_camera.rotation.x = pitch
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		if phase == "story": advance_story()
 		elif phase == "shooter": shoot_boss()
@@ -1301,14 +1979,21 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_F3:
 			skip_current_chapter()
 			get_viewport().set_input_as_handled()
+		elif phase == "rhythm" and event.keycode in [KEY_Q,KEY_W,KEY_E]:
+			rhythm_dodge([KEY_Q,KEY_W,KEY_E].find(event.keycode))
+			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_SPACE:
 			if phase == "story": advance_story()
 			elif phase == "chase" and chase_on_floor:
 				chase_velocity_y = -CHASE_JUMP_SPEED
 				chase_on_floor = false
-			elif phase == "rhythm": rhythm_dodge()
-			elif phase == "shooter" and fps_player.is_on_floor() and not fps_is_crouching: fps_player.velocity.y = 7.0
+				spawn_chase_particles(chase_player_pos + Vector2(21, 46), Color("#dfd6bc"), 8)
+				Sfx.play("jump", -6)
+			elif phase in ["shooter","defeated"] and fps_player.is_on_floor() and not fps_is_crouching and freeze_timer <= 0.0: fps_player.velocity.y = 7.0
 		elif event.keycode == KEY_R and phase == "shooter": begin_boss_reload()
+		elif event.keycode == KEY_SHIFT and phase == "shooter":
+			begin_roll()
+			get_viewport().set_input_as_handled()
 
 
 func _draw() -> void:
@@ -1316,6 +2001,7 @@ func _draw() -> void:
 	if phase in ["story", "card", "card_result"]:
 		if phase == "story" and next_phase == "chase": draw_escape_scene()
 		elif phase == "story" and next_phase == "rhythm": draw_confrontation_scene()
+		elif phase == "story" and next_phase == "rhythm_play": draw_rhythm()
 		else: draw_card_room()
 	elif phase == "chase":
 		draw_chase()
@@ -1328,43 +2014,47 @@ func _draw() -> void:
 
 
 func draw_card_room() -> void:
-	draw_rect(Rect2(0, 95, 960, 445), Color("#17112b"))
-	draw_rect(Rect2(180, 185, 600, 235), Color("#14532d"))
-	draw_circle(Vector2(480, 300), 190, Color("#166534"))
-	draw_circle(Vector2(480, 300), 184, Color("#064e3b"))
-	draw_animated_boss(Vector2(480, 145), 0.75)
-	draw_circle(Vector2(160, 380), 25, Color("#60a5fa"))
-	draw_rect(Rect2(140, 402, 40, 55), Color("#1d4ed8"))
+	draw_texture_rect(CARD_LOUNGE_ART, Rect2(0, 0, 960, 540), false)
+	draw_rect(Rect2(0, 0, 960, 95), Color("#0c111ab0"))
+	var frame_width := float(CLUB_LEADER_IDLE_TEXTURE.get_width()) / 4.0
+	var frame := int(Time.get_ticks_msec() * 0.0032) % 4
+	# Only the seated opponent's upper body is visible behind the rail.
+	draw_texture_rect_region(CLUB_LEADER_IDLE_TEXTURE, Rect2(420, 98, 120, 100), Rect2(frame_width * frame, 0, frame_width, CLUB_LEADER_IDLE_TEXTURE.get_height() * 0.54))
+	for i in boss_card_pairs.size():
+		var at := Vector2(265 + i * 72, 365)
+		draw_style_box(card_pair_style(), Rect2(at, Vector2(58, 38)))
+		draw_string(ThemeDB.fallback_font, at + Vector2(9, 26), boss_card_pairs[i] + " ×2", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#243431"))
+
+
+func card_pair_style() -> StyleBoxFlat:
+	if card_pair_panel == null:
+		card_pair_panel = StyleBoxFlat.new()
+		card_pair_panel.bg_color = Color("#e8e1ca")
+		card_pair_panel.set_corner_radius_all(4)
+	return card_pair_panel
 
 
 func draw_escape_scene() -> void:
 	# 카드 승부가 끝난 뒤에는 도박장이 아니라 건물 밖 추격로를 보여준다.
-	draw_rect(Rect2(0, 95, 960, 445), Color("#111827"))
-	draw_rect(Rect2(0, 380, 960, 160), Color("#273449"))
-	draw_rect(Rect2(55, 145, 250, 235), Color("#3f2d55"))
-	draw_rect(Rect2(105, 205, 150, 175), Color("#160f24"))
-	draw_string(ThemeDB.fallback_font, Vector2(82, 180), "CASINO EXIT", HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Color("#fbbf24"))
-	for x in range(360, 960, 120):
-		draw_rect(Rect2(x, 175 + int(x / 120) % 2 * 25, 78, 205), Color("#1e3a5f"))
-	draw_rect(Rect2(0, 430, 960, 8), Color("#64748b"))
-	draw_circle(Vector2(240, 395), 22, Color("#60a5fa"))
-	draw_rect(Rect2(220, 415, 40, 52), Color("#1d4ed8"))
+	draw_texture_rect(EXIT_ART, Rect2(0, 0, 960, 540), false)
+	draw_rect(Rect2(0, 0, 960, 95), Color("#0c111a80"))
+	draw_story_hero(Vector2(230, 375))
 	draw_animated_boss(Vector2(760, 385), 0.65, true)
-	draw_line(Vector2(650, 420), Vector2(900, 420), Color("#fbbf2466"), 4)
 
 
 func draw_chase() -> void:
-	draw_rect(Rect2(0, 95, 960, 335), Color("#172554"))
-	for i in 30:
-		var world_x := float(i) * 115.0
-		var screen_x := world_x - chase_camera_x
-		if screen_x > -100 and screen_x < 1060:
-			draw_rect(Rect2(screen_x, 170 + (i % 3) * 32, 72, 150), Color("#1e3a8a"))
+	# Shared hand-authored art, with a slower distant layer for depth.
+	var offset := fposmod(chase_camera_x * 0.28, 960.0)
+	for i in 2:
+		draw_texture_rect(GARDEN_TEXTURE, Rect2(float(i) * 960.0 - offset, -70, 960, 540), false, Color("#d0d5cc"))
 	for surface in chase_surfaces:
 		var screen_rect := Rect2(surface.position - Vector2(chase_camera_x, 0), surface.size)
 		if screen_rect.end.x >= 0 and screen_rect.position.x <= 960:
-			draw_rect(screen_rect, Color("#854d0e"))
-			draw_rect(Rect2(screen_rect.position - Vector2(0, 6), Vector2(screen_rect.size.x, 8)), Color("#84cc16"))
+			draw_rect(Rect2(screen_rect.position + Vector2(3, 5), screen_rect.size), Color("#14251a55"))
+			for row in range(0, int(surface.size.y), 48):
+				for column in range(0, int(surface.size.x), 128):
+					var tile_size := Vector2(minf(128, surface.size.x - column), minf(48, surface.size.y - row))
+					draw_texture_rect_region(LEDGE_TEXTURE, Rect2(screen_rect.position + Vector2(column, row), tile_size), Rect2(Vector2.ZERO, tile_size))
 	for hazard in chase_hazards:
 		var start := hazard.position - Vector2(chase_camera_x, 0)
 		for spike_x in range(0, int(hazard.size.x), 20):
@@ -1373,13 +2063,18 @@ func draw_chase() -> void:
 	if not blink:
 		var player_screen := chase_player_pos - Vector2(chase_camera_x, 0)
 		var frame_width := float(HERO_TEXTURE.get_width()) / 4.0
-		var frame := int(chase_time * 8.0) % 4
-		draw_texture_rect_region(HERO_TEXTURE, Rect2(player_screen + Vector2(-5, -9), Vector2(52, 58)), Rect2(frame_width * frame, 0, frame_width, HERO_TEXTURE.get_height()))
+		var walking := absf(Input.get_axis("ui_left", "ui_right")) > 0.0 or Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_D)
+		var frame := int(chase_time * 9.0) % 4 if walking and chase_on_floor else 0
+		var lean := chase_last_direction * 0.05 if not chase_on_floor else 0.0
+		draw_set_transform(player_screen + Vector2(21, 46), lean, Vector2(chase_last_direction, 1))
+		draw_texture_rect_region(HERO_TEXTURE, Rect2(-26, -55, 52, 58), Rect2(frame_width * frame, 0, frame_width, HERO_TEXTURE.get_height()))
+		draw_set_transform(Vector2.ZERO)
 	for enemy in chase_enemies:
 		var enemy_screen: Vector2 = enemy.pos - Vector2(chase_camera_x, 0)
-		draw_circle(enemy_screen - Vector2(0, 15), 18, Color("#a855f7"))
-		draw_circle(enemy_screen - Vector2(6, 18), 3, Color.WHITE)
-		draw_circle(enemy_screen + Vector2(6, -18), 3, Color.WHITE)
+		var squash := sin(chase_time * 7.0 + enemy.pos.x * 0.03) * 2.0
+		draw_texture_rect(SLIME_TEXTURE, Rect2(enemy_screen + Vector2(-27, -39 + squash), Vector2(54, 43 - squash)), false)
+	for particle in chase_particles:
+		draw_circle(particle.pos - Vector2(chase_camera_x, 0), 2, Color(particle.color, float(particle.life) / 0.45))
 	var boss_screen := Vector2(2700.0 - chase_camera_x, 352)
 	if boss_screen.x < 1040:
 		draw_animated_boss(boss_screen, 0.68, not chase_reached_boss)
@@ -1387,31 +2082,65 @@ func draw_chase() -> void:
 
 
 func draw_confrontation_scene() -> void:
-	draw_rect(Rect2(0, 95, 960, 445), Color("#100b22"))
-	draw_rect(Rect2(0, 420, 960, 120), Color("#312e45"))
-	for x in range(80, 960, 160):
-		draw_rect(Rect2(x, 155, 95, 210), Color("#1e1b4b"))
-		draw_rect(Rect2(x + 12, 175, 71, 115), Color("#312e81"))
-	draw_circle(Vector2(245, 357), 24, Color("#60a5fa"))
-	draw_rect(Rect2(222, 378, 46, 55), Color("#1d4ed8"))
+	draw_texture_rect(EXIT_ART, Rect2(-180, -45, 1140, 640), false, Color("#a7a7a4"))
+	draw_rect(Rect2(0, 0, 960, 95), Color("#0c111a90"))
+	draw_story_hero(Vector2(230, 345))
 	draw_animated_boss(Vector2(730, 345), 0.9)
 	draw_line(Vector2(315, 390), Vector2(640, 390), Color("#fbbf2466"), 3)
 
 
+func draw_story_hero(at: Vector2) -> void:
+	var width := float(HERO_TEXTURE.get_width()) / 4.0
+	draw_texture_rect_region(HERO_TEXTURE, Rect2(at - Vector2(35, 45), Vector2(70, 94)), Rect2(0, 0, width, HERO_TEXTURE.get_height()))
+
+
 func draw_rhythm() -> void:
-	draw_rect(Rect2(0, 95, 960, 445), Color("#140c24"))
-	for i in 8:
-		var glow := 0.12 + 0.08 * sin(rhythm_time * 8 + i)
-		draw_circle(Vector2(120 + i * 115, 300), 75, Color(0.5, 0.2, 0.9, glow))
-	draw_line(Vector2(165, 130), Vector2(165, 465), Color("#f8fafc"), 5)
-	draw_line(Vector2(145, 300), Vector2(185, 300), Color("#fbbf24"), 6)
-	draw_circle(Vector2(115, 300), 22, Color("#60a5fa"))
+	draw_texture_rect(GARDEN_TEXTURE, Rect2(0, 0, 960, 540), false, Color("#535b69"))
+	draw_rect(Rect2(0, 95, 960, 445), Color("#101725c0"))
+	if rhythm_impact > 0.0:
+		draw_rect(Rect2(0,95,960,445), Color(0.9,0.82,0.5,rhythm_impact * 0.09))
+		draw_arc(Vector2(165,300), 22 + (1.0-rhythm_impact)*55, 0,TAU,64,Color(1.0,0.9,0.65,rhythm_impact),3,true)
+	var pulse := pow(1.0 - fposmod(rhythm_time, BOSS_BEAT) / BOSS_BEAT, 3.0)
+	draw_rect(Rect2(0,510,960,4 + pulse * 8),Color(0.92,0.73,0.36,0.15 + pulse * 0.45))
+	for beat in 4:
+		var active := int(floor(rhythm_time / BOSS_BEAT)) % 4 == beat
+		draw_circle(Vector2(438 + beat * 28,480),5 + (pulse * 4 if active else 0.0),Color("#ffe3a3") if active else Color("#55505b"))
+	for i in 4:
+		draw_arc(Vector2(165, 300), 30 + float(i) * 16 + pulse * 8, 0, TAU, 64, Color(0.85, 0.73, 0.47, (0.22 - i * 0.04) * (0.5 + pulse)), 2, true)
+	draw_circle(Vector2(165,300),27,Color(0.08,0.12,0.19,0.8))
+	draw_arc(Vector2(165,300),27,0,TAU,64,Color("#ffe3a3"),4,true)
+	draw_arc(Vector2(165,300),33 + pulse * 4,0,TAU,64,Color(1,0.86,0.55,0.3 + pulse*0.4),2,true)
+	var hero_width := float(HERO_TEXTURE.get_width()) / 4.0
+	var dodge := sin(clampf(rhythm_feedback_left / 0.5, 0, 1) * PI) * 12.0 if rhythm_feedback.begins_with("PERFECT") or rhythm_feedback.begins_with("GOOD") else 0.0
+	draw_texture_rect_region(HERO_TEXTURE, Rect2(83, 277 - dodge, 48, 64), Rect2(0, 0, hero_width, HERO_TEXTURE.get_height()))
 	draw_animated_boss(Vector2(835, 300), 0.7)
 	for attack in rhythm_attacks:
 		if attack.resolved: continue
 		var color: Color = [Color("#fb7185"), Color("#67e8f9"), Color("#facc15")][int(attack.type)]
-		draw_circle(Vector2(float(attack.x), 300), 25, Color(color, 0.28))
-		draw_circle(Vector2(float(attack.x), 300), 13, color)
+		var direction := (Vector2(850,float(attack.origin_y)) - Vector2(165,300)).normalized()
+		for i in 6:
+			draw_circle(Vector2(float(attack.x),float(attack.y)) + direction * i * 7, 10.0 - float(i), Color(color, 0.18 - i * 0.025))
+		var at := Vector2(float(attack.x), float(attack.y))
+		draw_string(ThemeDB.fallback_font,at+Vector2(-7,-35),["Q","W","E"][int(attack.type)],HORIZONTAL_ALIGNMENT_LEFT,-1,24,Color.WHITE)
+		draw_circle(at, 25, Color(color, 0.28))
+		if int(attack.type) == 0:
+			var frame := int(rhythm_time * 20.0) % 16
+			draw_texture_rect_region(RHYTHM_FIRE_ART, Rect2(at - Vector2(29, 29), Vector2(58, 58)), Rect2((frame % 4) * 128, floori(frame / 4.0) * 128, 128, 128))
+		else:
+			var texture := RHYTHM_ICE_ART if int(attack.type) == 1 else RHYTHM_LIGHTNING_ART
+			var wobble := sin(rhythm_time * 9.0 + float(attack.time)) * 3.0
+			draw_texture_rect(texture, Rect2(at - Vector2(27, 31 + wobble), Vector2(54, 62 + wobble * 2)), false)
+	for particle in chase_particles:
+		draw_circle(particle.pos, 2, Color(particle.color, float(particle.life) / 0.45))
+	if rhythm_miss_flash > 0.0:
+		draw_rect(Rect2(0,95,960,445),Color(0.9,0.03,0.04,rhythm_miss_flash * 0.22))
+		draw_arc(Vector2(165,300),30 + (1.0-rhythm_miss_flash)*85,0,TAU,64,Color(1,0.2,0.2,rhythm_miss_flash),6,true)
+		draw_string(ThemeDB.fallback_font,Vector2(370 + sin(rhythm_time * 100)*rhythm_jolt*9,225),"MISS · COMBO BREAK",HORIZONTAL_ALIGNMENT_LEFT,-1,32,Color("#ff7777"))
+	for hp_index in 5:
+		draw_circle(Vector2(115 + hp_index * 23,410),7,Color("#ff9a91") if hp_index < rhythm_hp else Color("#42343b"))
+	if rhythm_feedback_left > 0 and (rhythm_feedback.begins_with("PERFECT") or rhythm_feedback.begins_with("GOOD")):
+		draw_string(ThemeDB.fallback_font, Vector2(315, 225), rhythm_feedback, HORIZONTAL_ALIGNMENT_LEFT, -1, 28 + int(rhythm_impact * 4), Color("#ffe3a3"))
+	draw_string(ThemeDB.fallback_font, Vector2(255, 445), "불 Q   ·   얼음 W   ·   번개 E", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("#d5cebc"))
 
 
 func draw_rogue() -> void:
@@ -1429,13 +2158,13 @@ func draw_rogue() -> void:
 
 
 func draw_ending() -> void:
-	draw_rect(Rect2(0, 95, 960, 445), Color("#1e1035"))
-	for i in 35:
-		var x := float((i * 83) % 940 + 10)
-		var y := float(110 + (i * 47) % 300)
-		draw_circle(Vector2(x, y), 3 + i % 4, [Color("#fbbf24"), Color("#f472b6"), Color("#67e8f9")][i % 3])
-	draw_string(ThemeDB.fallback_font, Vector2(265, 245), "GENRE MASTER", HORIZONTAL_ALIGNMENT_LEFT, -1, 54, Color("#fbbf24"))
-	draw_string(ThemeDB.fallback_font, Vector2(325, 300), "FINAL BOSS CLEAR", HORIZONTAL_ALIGNMENT_LEFT, -1, 27, Color("#f8fafc"))
+	draw_texture_rect(PRISON_ART, Rect2(0,0,960,540), false)
+	var arrival := smoothstep(0.0,1.3,ending_time)
+	draw_animated_boss(Vector2(lerpf(-80,280,arrival),356),1.05,ending_time<1.3)
+	var closing := smoothstep(1.3,2.8,ending_time)
+	draw_texture_rect(PRISON_GATE,Rect2(lerpf(-435,65,closing),95,430,355),false)
+	draw_rect(Rect2(0,0,960,95),Color("#0b1017bb"))
+	draw_string(ThemeDB.fallback_font,Vector2(95,490),"이상민, 결국 감옥으로…",HORIZONTAL_ALIGNMENT_LEFT,-1,24,Color("#e8dbc2"))
 
 
 func draw_animated_boss(pos: Vector2, scale_value: float, running := false) -> void:
@@ -1456,7 +2185,15 @@ func create_3d_box(pos: Vector3, box_size: Vector3, color: Color, collision_enab
 	var root := Node3D.new()
 	root.position = pos
 	world_3d.add_child(root)
-	root.add_child(make_mesh_box(box_size, color))
+	var surface := make_mesh_box(box_size, color)
+	if collision_enabled:
+		var stone := make_material(color)
+		stone.albedo_texture = CONCRETE_DETAIL
+		stone.uv1_triplanar = true
+		stone.uv1_scale = Vector3(0.4, 0.4, 0.4)
+		stone.roughness = 0.92
+		surface.material_override = stone
+	root.add_child(surface)
 	if collision_enabled:
 		var body := StaticBody3D.new()
 		var collision := CollisionShape3D.new()
@@ -1673,7 +2410,7 @@ func spawn_fire_vortex(pos: Vector3, color: Color) -> void:
 	spawn_fire_volume_particles(impact, 360, 2.65)
 	spawn_vfx_particles(impact, Color("#ffd36a"), 170, 4.8)
 	add_impact_light(impact, color, 11.0, 10.0, 0.62)
-	get_tree().create_timer(1.95).timeout.connect(impact.queue_free)
+	get_tree().create_timer(1.95, false).timeout.connect(impact.queue_free)
 
 
 func spawn_ice_eruption(pos: Vector3, color: Color) -> void:
@@ -1703,7 +2440,7 @@ func spawn_ice_eruption(pos: Vector3, color: Color) -> void:
 		erupt.tween_property(spike, "position:y", spike_height * 0.5, 0.22).set_delay(float(i) * 0.014)
 	spawn_vfx_particles(impact, Color("#d9fbff"), 260, 9.0)
 	add_impact_light(impact, color, 17.0, 19.0, 0.92)
-	get_tree().create_timer(2.35).timeout.connect(impact.queue_free)
+	get_tree().create_timer(2.35, false).timeout.connect(impact.queue_free)
 
 
 func spawn_charge_impact(pos: Vector3, color: Color) -> void:
@@ -1719,11 +2456,11 @@ func spawn_charge_impact(pos: Vector3, color: Color) -> void:
 		shock.tween_property(ring, "transparency", 1.0, 0.34).set_delay(0.08)
 	spawn_vfx_particles(impact, Color("#ffb09f"), 190, 3.4)
 	add_impact_light(impact, color, 14.0, 9.0, 0.34)
-	get_tree().create_timer(0.85).timeout.connect(impact.queue_free)
+	get_tree().create_timer(0.85, false).timeout.connect(impact.queue_free)
 
 
 func perform_boss_charge(start: Vector3, target: Vector3) -> void:
-	if not is_instance_valid(boss_body): return
+	if phase != "shooter" or not is_instance_valid(boss_body): return
 	boss_casting = true
 	boss_body.position = start
 	boss_body.look_at(Vector3(target.x, start.y, target.z), Vector3.UP, true)
@@ -1731,12 +2468,15 @@ func perform_boss_charge(start: Vector3, target: Vector3) -> void:
 		boss_visual.rotation_degrees.x = -18.0
 		boss_left_arm.rotation_degrees = Vector3(38, 0, 52)
 		boss_right_arm.rotation_degrees = Vector3(38, 0, -52)
-	var dash := boss_body.create_tween()
-	dash.tween_property(boss_body, "position", target, 0.20).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
-	dash.tween_callback(func() -> void:
+	if boss_dash_tween != null and boss_dash_tween.is_valid(): boss_dash_tween.kill()
+	boss_dash_tween = boss_body.create_tween()
+	boss_dash_tween.tween_property(boss_body, "position", target, 0.20).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+	boss_dash_tween.tween_callback(func() -> void:
+		if phase != "shooter": return
 		camera_shake = 0.62
 		if is_instance_valid(boss_visual):
-			boss_visual.create_tween().tween_property(boss_visual, "rotation_degrees:x", 0.0, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			boss_recover_tween = boss_visual.create_tween()
+			boss_recover_tween.tween_property(boss_visual, "rotation_degrees:x", 0.0, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	)
 
 
@@ -1786,7 +2526,7 @@ func spawn_lightning_barrage(start: Vector3, target: Vector3, color: Color) -> v
 	flash_tween.tween_property(flash, "light_energy", 2.0, 0.055)
 	flash_tween.tween_property(flash, "light_energy", 11.0, 0.025)
 	flash_tween.tween_property(flash, "light_energy", 0.0, 0.22)
-	get_tree().create_timer(0.92).timeout.connect(barrage.queue_free)
+	get_tree().create_timer(0.92, false).timeout.connect(barrage.queue_free)
 
 
 func make_fire_spiral(radius: float, height: float, turns: float, width: float, color: Color) -> MeshInstance3D:
@@ -1933,6 +2673,8 @@ func make_soft_particle_texture(inner_color: Color, edge_color: Color) -> Gradie
 
 
 func make_soft_particle_material(color: Color, energy: float) -> StandardMaterial3D:
+	var cache_key := color.to_html() + ":" + str(energy)
+	if vfx_material_cache.has(cache_key): return vfx_material_cache[cache_key]
 	var texture := make_soft_particle_texture(Color(1.0, 1.0, 1.0, color.a), Color(color.r, color.g, color.b, color.a))
 	var material := StandardMaterial3D.new()
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -1946,6 +2688,7 @@ func make_soft_particle_material(color: Color, energy: float) -> StandardMateria
 	material.emission = Color(color.r, color.g, color.b)
 	material.emission_energy_multiplier = energy
 	material.emission_texture = texture
+	vfx_material_cache[cache_key] = material
 	return material
 
 
@@ -2025,6 +2768,7 @@ func make_label(pos: Vector2, label_size: Vector2, font_size: int, color: Color)
 
 
 func finish_room() -> void:
+	ending_music.stop()
 	visible = false
 	finish_button.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
