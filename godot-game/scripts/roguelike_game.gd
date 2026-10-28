@@ -850,7 +850,7 @@ func spawn_healing_item(position_value: Vector2) -> void:
 	var shine := make_circle(3.0, Color("#ffffffcc"))
 	shine.position = Vector2(-5, -7)
 	node.add_child(shine)
-	var pulse := create_tween().set_loops()
+	var pulse := node.create_tween().set_loops()
 	pulse.tween_property(node, "scale", Vector2(1.18, 1.18), 0.45).set_trans(Tween.TRANS_SINE)
 	pulse.tween_property(node, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_SINE)
 	healing_items.append({"node": node, "life": 12.0, "phase": randf_range(0.0, TAU)})
